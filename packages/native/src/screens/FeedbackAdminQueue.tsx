@@ -1,8 +1,8 @@
 import type { Post } from '@kobecuppens/feedback-core';
 import { useAdminQueue, useModeration } from '@kobecuppens/feedback-core/react';
 import { useMemo, useState } from 'react';
-import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
-import { Button, EmptyState, ErrorState, InlineError, Loading } from '../components';
+import { FlatList, Pressable, Text, View } from 'react-native';
+import { Button, DeclineForm, EmptyState, ErrorState, InlineError, Loading } from '../components';
 import { useUI } from '../ui';
 
 export interface FeedbackAdminQueueProps {
@@ -37,7 +37,6 @@ function QueueItem({ post, onOpen }: { post: Post; onOpen: () => void }) {
   const { styles, strings, theme } = useUI();
   const moderation = useModeration();
   const [declining, setDeclining] = useState(false);
-  const [reason, setReason] = useState('');
   const failed = [moderation.approve, moderation.decline].find((mutation) => mutation.isError);
   return (
     <View style={[styles.card, { flexDirection: 'column' }]}>
@@ -52,25 +51,11 @@ function QueueItem({ post, onOpen }: { post: Post; onOpen: () => void }) {
         <Text style={styles.cardMetaText}>{strings.post.by(post.author.name ?? strings.post.anonymous)}</Text>
       </Pressable>
       {declining ? (
-        <View style={{ gap: theme.spacing.sm }}>
-          <TextInput
-            value={reason}
-            onChangeText={setReason}
-            placeholder={strings.admin.declineReasonPlaceholder}
-            placeholderTextColor={theme.colors.textMuted}
-            style={styles.input}
-            accessibilityLabel={strings.admin.declineReasonPlaceholder}
-          />
-          <View style={styles.adminRow}>
-            <Button
-              label={strings.admin.confirmDecline}
-              variant="danger"
-              loading={moderation.decline.isPending}
-              onPress={() => moderation.decline.mutate({ id: post.id, reason: reason.trim() || null })}
-            />
-            <Button label={strings.admin.cancel} variant="secondary" onPress={() => setDeclining(false)} />
-          </View>
-        </View>
+        <DeclineForm
+          pending={moderation.decline.isPending}
+          onConfirm={(reason) => moderation.decline.mutate({ id: post.id, reason }, { onSuccess: () => setDeclining(false) })}
+          onCancel={() => setDeclining(false)}
+        />
       ) : (
         <View style={styles.adminRow}>
           <Button

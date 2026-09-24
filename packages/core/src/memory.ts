@@ -1,6 +1,7 @@
 import type { FeedbackAdapter } from './adapter';
 import {
   BOARD_LIMITS,
+  boardFeatures,
   DEFAULT_PROJECT_SETTINGS,
   FeedbackApiError,
   ROADMAP_STATUSES,
@@ -85,15 +86,7 @@ export function createMemoryAdapter(options: MemoryAdapterOptions = {}): Feedbac
   const config: BoardConfig = {
     project: { id: 'memory', name: 'Demo', slug: 'demo' },
     categories,
-    features: {
-      submit: !!viewer,
-      vote: !!viewer,
-      downvote: !!viewer && settings.allowDownvotes,
-      comments: settings.allowComments,
-      attachments: !!viewer && settings.allowAttachments,
-      roadmap: settings.roadmapEnabled,
-      updates: !!viewer,
-    },
+    features: boardFeatures(settings, !!viewer),
     viewer: { identified: !!viewer, anonymous: false, isAdmin },
     limits: BOARD_LIMITS,
   };

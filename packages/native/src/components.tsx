@@ -1,6 +1,6 @@
 import { describeError, formatRelativeTime, type FeedbackStrings, type Post, type PostStatus } from '@kobecuppens/feedback-core';
-import { memo, useEffect } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Image, Platform, Pressable, Text, View } from 'react-native';
+import { memo, useEffect, useState } from 'react';
+import { AccessibilityInfo, ActivityIndicator, Image, Platform, Pressable, Text, TextInput, View } from 'react-native';
 import {
   useUI,
   type AvatarProps,
@@ -256,3 +256,36 @@ export const PostCard = memo(
   },
   (a, b) => a.post === b.post && a.canVote === b.canVote && a.canDownvote === b.canDownvote,
 );
+
+/**
+ * Reason field plus confirm/cancel for declining a post. The caller owns the mutation, so
+ * its error shows with the other moderation errors, and closes the form on success.
+ */
+export function DeclineForm({
+  pending,
+  onConfirm,
+  onCancel,
+}: {
+  pending: boolean;
+  onConfirm: (reason: string | null) => void;
+  onCancel: () => void;
+}) {
+  const { styles, strings, theme } = useUI();
+  const [reason, setReason] = useState('');
+  return (
+    <View style={{ gap: theme.spacing.sm }}>
+      <TextInput
+        value={reason}
+        onChangeText={setReason}
+        placeholder={strings.admin.declineReasonPlaceholder}
+        placeholderTextColor={theme.colors.textMuted}
+        style={styles.input}
+        accessibilityLabel={strings.admin.declineReasonPlaceholder}
+      />
+      <View style={styles.adminRow}>
+        <Button label={strings.admin.confirmDecline} variant="danger" loading={pending} onPress={() => onConfirm(reason.trim() || null)} />
+        <Button label={strings.admin.cancel} variant="secondary" onPress={onCancel} />
+      </View>
+    </View>
+  );
+}

@@ -52,6 +52,8 @@ const FeedbackContext = createContext<FeedbackContextValue | null>(null);
 
 const noop = () => {};
 
+const NO_FEATURES: ClientFeatures = {};
+
 export function FeedbackProvider(props: FeedbackProviderProps) {
   const { projectKey, baseUrl, userToken, getUserToken, storage, adapter: customAdapter } = props;
   if (!customAdapter && !projectKey) {
@@ -64,17 +66,13 @@ export function FeedbackProvider(props: FeedbackProviderProps) {
     [customAdapter, projectKey, baseUrl, userToken, storage],
   );
 
-  // Inline `theme={{…}}` objects are common: key on content (themes are plain data) so a
-  // host re-render does not rebuild every style in the board.
-  const themeKey = JSON.stringify(props.theme ?? null);
-  // Intentional dependencies: keyed on the theme's content so inline theme objects do not rebuild styles
-  const theme = useMemo(() => resolveTheme(props.theme, props.colorScheme ?? 'light'), [themeKey, props.colorScheme]);
+  // Inline `theme={{…}}`, `strings` and `features` objects are common: compare them by content
+  // so a host re-render does not rebuild every style or re-render the whole board.
+  const themeProp = useStableValue(props.theme);
+  const theme = useMemo(() => resolveTheme(themeProp, props.colorScheme ?? 'light'), [themeProp, props.colorScheme]);
   const stringOverrides = useStableValue(props.strings);
   const strings = useMemo(() => resolveStrings(props.locale, stringOverrides), [props.locale, stringOverrides]);
-
-  const featuresKey = JSON.stringify(props.features ?? {});
-  // Intentional dependencies: keyed on the features' content so inline objects do not re-render the board
-  const clientFeatures = useMemo<ClientFeatures>(() => props.features ?? {}, [featuresKey]);
+  const clientFeatures: ClientFeatures = useStableValue(props.features ?? NO_FEATURES);
   // Stable callback around the latest onEvent, so inline handlers do not re-render the board.
   const onEventRef = useRef(props.onEvent ?? noop);
   onEventRef.current = props.onEvent ?? noop;

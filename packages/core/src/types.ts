@@ -128,6 +128,22 @@ export interface BoardConfig {
   };
 }
 
+/**
+ * What a viewer may do on a board, from the project's settings. Shared by the hosted API
+ * (`GET /v1/config`) and the in-memory adapter so the two cannot drift apart.
+ */
+export function boardFeatures(settings: ProjectSettings, identified: boolean): BoardConfig['features'] {
+  return {
+    submit: identified,
+    vote: identified,
+    downvote: identified && settings.allowDownvotes,
+    comments: settings.allowComments,
+    attachments: identified && settings.allowAttachments,
+    roadmap: settings.roadmapEnabled,
+    updates: identified,
+  };
+}
+
 /** Server-side limits, shared by the worker and the in-memory adapter. */
 export const BOARD_LIMITS: BoardConfig['limits'] = {
   titleMax: 120,

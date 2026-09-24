@@ -1,7 +1,7 @@
 import type { Post } from '@kobecuppens/feedback-core';
 import { useAdminQueue, useModeration } from '@kobecuppens/feedback-core/react';
 import { useMemo, useState } from 'react';
-import { Button, EmptyState, ErrorState, InlineError, Loading } from '../components';
+import { Button, DeclineForm, EmptyState, ErrorState, InlineError, Loading } from '../components';
 import { useUI } from '../ui';
 
 export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) => void }) {
@@ -9,11 +9,6 @@ export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) =>
   const query = useAdminQueue();
   const moderation = useModeration();
   const [declining, setDeclining] = useState<string | null>(null);
-  const [reason, setReason] = useState('');
-  const startDecline = (id: string | null) => {
-    setDeclining(id);
-    setReason('');
-  };
   const failed = [moderation.approve, moderation.decline].find((mutation) => mutation.isError);
   const posts = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
 
@@ -37,28 +32,11 @@ export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) =>
               <span {...slot('cardMetaText')}>{strings.post.by(post.author.name ?? strings.post.anonymous)}</span>
             </div>
             {declining === post.id ? (
-              <>
-                <input
-                  {...slot('input')}
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder={strings.admin.declineReasonPlaceholder}
-                  aria-label={strings.admin.declineReasonPlaceholder}
-                  // Focus follows the Decline button this field replaces.
-                  autoFocus
-                />
-                <div {...slot('adminRow')}>
-                  <Button
-                    label={strings.admin.confirmDecline}
-                    variant="danger"
-                    loading={moderation.decline.isPending}
-                    onClick={() =>
-                      moderation.decline.mutate({ id: post.id, reason: reason.trim() || null }, { onSuccess: () => startDecline(null) })
-                    }
-                  />
-                  <Button label={strings.admin.cancel} variant="secondary" onClick={() => startDecline(null)} />
-                </div>
-              </>
+              <DeclineForm
+                pending={moderation.decline.isPending}
+                onConfirm={(reason) => moderation.decline.mutate({ id: post.id, reason }, { onSuccess: () => setDeclining(null) })}
+                onCancel={() => setDeclining(null)}
+              />
             ) : (
               <div {...slot('adminRow')}>
                 <Button
@@ -66,7 +44,7 @@ export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) =>
                   onClick={() => moderation.approve.mutate(post.id)}
                   loading={moderation.approve.isPending && moderation.approve.variables === post.id}
                 />
-                <Button label={strings.admin.decline} variant="secondary" onClick={() => startDecline(post.id)} />
+                <Button label={strings.admin.decline} variant="secondary" onClick={() => setDeclining(post.id)} />
               </div>
             )}
           </li>

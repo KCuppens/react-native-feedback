@@ -22,7 +22,19 @@ import {
   View,
   type ImageStyle,
 } from 'react-native';
-import { Avatar, Button, CategoryPill, Chip, ErrorState, Header, InlineError, Loading, PostStatusPill, VoteControl } from '../components';
+import {
+  Avatar,
+  Button,
+  CategoryPill,
+  Chip,
+  DeclineForm,
+  ErrorState,
+  Header,
+  InlineError,
+  Loading,
+  PostStatusPill,
+  VoteControl,
+} from '../components';
 import { useUI } from '../ui';
 
 export interface FeedbackDetailProps {
@@ -204,7 +216,6 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
   const { styles, strings, theme } = useUI();
   const moderation = useModeration();
   const [declining, setDeclining] = useState(false);
-  const [reason, setReason] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const failed = [moderation.approve, moderation.decline, moderation.update, moderation.remove].find((mutation) => mutation.isError);
   // The question replaces the button that asked it, so tell screen reader users it is waiting.
@@ -224,27 +235,11 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
         </View>
       )}
       {declining && (
-        <View style={{ gap: theme.spacing.sm }}>
-          <TextInput
-            value={reason}
-            onChangeText={setReason}
-            placeholder={strings.admin.declineReasonPlaceholder}
-            placeholderTextColor={theme.colors.textMuted}
-            style={styles.input}
-            accessibilityLabel={strings.admin.declineReasonPlaceholder}
-          />
-          <View style={styles.adminRow}>
-            <Button
-              label={strings.admin.confirmDecline}
-              variant="danger"
-              loading={moderation.decline.isPending}
-              onPress={() =>
-                moderation.decline.mutate({ id: post.id, reason: reason.trim() || null }, { onSuccess: () => setDeclining(false) })
-              }
-            />
-            <Button label={strings.admin.cancel} variant="secondary" onPress={() => setDeclining(false)} />
-          </View>
-        </View>
+        <DeclineForm
+          pending={moderation.decline.isPending}
+          onConfirm={(reason) => moderation.decline.mutate({ id: post.id, reason }, { onSuccess: () => setDeclining(false) })}
+          onCancel={() => setDeclining(false)}
+        />
       )}
       {post.moderation === 'approved' && (
         <>

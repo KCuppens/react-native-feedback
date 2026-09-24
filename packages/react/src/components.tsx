@@ -1,5 +1,5 @@
 import { describeError, formatRelativeTime, type Post } from '@kobecuppens/feedback-core';
-import { memo, type CSSProperties } from 'react';
+import { memo, useState, type CSSProperties } from 'react';
 import {
   useUI,
   type AvatarProps,
@@ -55,6 +55,47 @@ function Spinner({ label }: { label: string }) {
 }
 
 /** A failed action's localized message, announced to screen readers. */
+/**
+ * Reason field plus confirm/cancel for declining a post. The caller owns the mutation (so its
+ * error shows with the other moderation errors); Escape cancels instead of leaving the screen.
+ */
+export function DeclineForm({
+  pending,
+  onConfirm,
+  onCancel,
+}: {
+  pending: boolean;
+  onConfirm: (reason: string | null) => void;
+  onCancel: () => void;
+}) {
+  const { slot, strings } = useUI();
+  const [reason, setReason] = useState('');
+  return (
+    <div
+      style={{ display: 'contents' }}
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape') return;
+        e.preventDefault();
+        onCancel();
+      }}
+    >
+      <input
+        {...slot('input')}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder={strings.admin.declineReasonPlaceholder}
+        aria-label={strings.admin.declineReasonPlaceholder}
+        // Focus follows the Decline button this field replaces.
+        autoFocus
+      />
+      <div {...slot('adminRow')}>
+        <Button label={strings.admin.confirmDecline} variant="danger" loading={pending} onClick={() => onConfirm(reason.trim() || null)} />
+        <Button label={strings.admin.cancel} variant="secondary" onClick={onCancel} />
+      </div>
+    </div>
+  );
+}
+
 export function InlineError({ error }: { error: unknown }) {
   const { slot, strings } = useUI();
   if (!error) return null;

@@ -1,4 +1,5 @@
 import {
+  boardFeatures,
   ROADMAP_STATUSES,
   type BoardConfig,
   type Category,
@@ -60,20 +61,11 @@ export async function loadCategories(c: Context<AppEnv>): Promise<Category[]> {
 
 publicRoutes.get('/config', async (c) => {
   const project = c.get('project');
-  const s = project.settings;
   const identity = c.get('identity');
   const config: BoardConfig = {
     project: { id: project.id, name: project.name, slug: project.slug },
     categories: await loadCategories(c),
-    features: {
-      submit: !!identity,
-      vote: !!identity,
-      downvote: !!identity && s.allowDownvotes,
-      comments: s.allowComments,
-      attachments: !!identity && s.allowAttachments,
-      roadmap: s.roadmapEnabled,
-      updates: !!identity,
-    },
+    features: boardFeatures(project.settings, !!identity),
     viewer: { identified: !!identity, anonymous: identity?.anonymous ?? false, isAdmin: isInAppAdmin(c) },
     limits: {
       titleMax: LIMITS.titleMax,

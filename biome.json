@@ -55,6 +55,7 @@
     {
       "includes": [
         "packages/react/src/screens/FeedbackDetail.tsx",
+        "packages/react/src/components.tsx",
         "packages/react/src/screens/FeedbackList.tsx",
         "apps/dashboard/src/ui.tsx"
       ],
@@ -71,7 +72,8 @@
         "apps/dashboard/src/ui.tsx",
         "apps/dashboard/src/pages/PostDrawer.tsx",
         "packages/react/src/FeedbackBoard.tsx",
-        "packages/react/src/screens/FeedbackDetail.tsx"
+        "packages/react/src/screens/FeedbackDetail.tsx",
+        "packages/react/src/components.tsx"
       ],
       "linter": {
         "rules": {

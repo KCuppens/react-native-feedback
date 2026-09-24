@@ -9,7 +9,19 @@ import {
   useVote,
 } from '@kobecuppens/feedback-core/react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Avatar, Button, CategoryPill, Chip, ErrorState, Header, InlineError, Loading, PostStatusPill, VoteControl } from '../components';
+import {
+  Avatar,
+  Button,
+  CategoryPill,
+  DeclineForm,
+  Chip,
+  ErrorState,
+  Header,
+  InlineError,
+  Loading,
+  PostStatusPill,
+  VoteControl,
+} from '../components';
 import { useUI } from '../ui';
 
 export interface FeedbackDetailProps {
@@ -191,7 +203,6 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
   const { slot, strings } = useUI();
   const moderation = useModeration();
   const [declining, setDeclining] = useState(false);
-  const [reason, setReason] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const declineFocus = useSwapFocus(declining);
   const deleteFocus = useSwapFocus(confirmDelete);
@@ -239,28 +250,11 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
         </div>
       )}
       {declining && (
-        <div style={{ display: 'contents' }} onKeyDown={cancelOnEscape(() => setDeclining(false))}>
-          <input
-            {...slot('input')}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder={strings.admin.declineReasonPlaceholder}
-            aria-label={strings.admin.declineReasonPlaceholder}
-            // Focus follows the Decline button this field replaces.
-            autoFocus
-          />
-          <div {...slot('adminRow')}>
-            <Button
-              label={strings.admin.confirmDecline}
-              variant="danger"
-              loading={moderation.decline.isPending}
-              onClick={() =>
-                moderation.decline.mutate({ id: post.id, reason: reason.trim() || null }, { onSuccess: () => setDeclining(false) })
-              }
-            />
-            <Button label={strings.admin.cancel} variant="secondary" onClick={() => setDeclining(false)} />
-          </div>
-        </div>
+        <DeclineForm
+          pending={moderation.decline.isPending}
+          onConfirm={(reason) => moderation.decline.mutate({ id: post.id, reason }, { onSuccess: () => setDeclining(false) })}
+          onCancel={() => setDeclining(false)}
+        />
       )}
       {post.moderation === 'approved' && (
         <>
