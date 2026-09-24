@@ -184,10 +184,13 @@ describe('comments', () => {
 
   it('refetches instead of appending when more pages remain', async () => {
     const { wrapper, queryClient, adapter } = setup(seeded());
-    const { result } = renderHook(() => ({ comments: useComments('p1'), create: useCreateComment('p1') }), { wrapper });
+    const { result } = renderHook(
+      () => ({ comments: useComments('p1'), create: useCreateComment('p1'), scope: useFeedbackContext().scope }),
+      { wrapper },
+    );
     await waitFor(() => expect(result.current.comments.data).toBeDefined());
     // Pretend the server said there is another page.
-    queryClient.setQueryData(feedbackKeys.comments('custom|anon', 'p1'), {
+    queryClient.setQueryData(feedbackKeys.comments(result.current.scope, 'p1'), {
       pages: [{ items: [], nextCursor: '50' }],
       pageParams: [null],
     });

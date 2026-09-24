@@ -7,8 +7,6 @@ beforeEach(async () => {
   h = await createHarness();
 });
 
-const admin = () => ({ Authorization: `Bearer ${h.project.secretKey}` });
-
 describe('limits, merges, CSRF, health and edge caching', () => {
   it('serves a roadmap with more posts than D1 allows bound parameters', async () => {
     h.db.prepare("INSERT INTO end_users (id, project_id, external_id, created_at) VALUES ('u', ?, 'u', 0)").run(h.project.id);
@@ -23,9 +21,9 @@ describe('limits, merges, CSRF, health and edge caching', () => {
   });
 
   it('merges concurrent settings patches instead of overwriting them', async () => {
-    const patch = (body: Partial<ProjectSettings>) => h.request('/v1/admin/settings', { method: 'PATCH', headers: admin(), json: body });
+    const patch = (body: Partial<ProjectSettings>) => h.request('/v1/admin/settings', { method: 'PATCH', headers: h.admin(), json: body });
     await Promise.all([patch({ autoApprove: true }), patch({ allowDownvotes: false })]);
-    const settings = (await (await h.request('/v1/admin/settings', { headers: admin() })).json()) as ProjectSettings;
+    const settings = (await (await h.request('/v1/admin/settings', { headers: h.admin() })).json()) as ProjectSettings;
     expect(settings).toMatchObject({ autoApprove: true, allowDownvotes: false });
     const cleared = (await (await patch({ adminEmail: null })).json()) as ProjectSettings;
     expect(cleared.adminEmail).toBeNull();
@@ -33,12 +31,10 @@ describe('limits, merges, CSRF, health and edge caching', () => {
 
   it('lets only one of two crossing merges win, so no cycle forms', async () => {
     h.setSettings({ autoApprove: true });
-    const make = async (title: string) =>
-      (await (await h.request('/v1/posts', { method: 'POST', headers: await h.as({ user: title }), json: { title } })).json()) as Post;
-    const a = await make('Post A');
-    const b = await make('Post B');
+    const a = await h.createPost({ user: 'Post A' }, 'Post A');
+    const b = await h.createPost({ user: 'Post B' }, 'Post B');
     const merge = (id: string, intoId: string) =>
-      h.request(`/v1/admin/posts/${id}/merge`, { method: 'POST', headers: admin(), json: { intoId } });
+      h.request(`/v1/admin/posts/${id}/merge`, { method: 'POST', headers: h.admin(), json: { intoId } });
     const statuses = (await Promise.all([merge(a.id, b.id), merge(b.id, a.id)])).map((r) => r.status).sort();
     // The loser is caught by the pre-check (400) or, in a true race, by the SQL guard (409).
     expect(statuses[0]).toBe(200);
@@ -128,7 +124,7 @@ describe('limits, merges, CSRF, health and edge caching', () => {
     try {
       await h.request('/v1/admin/webhooks', {
         method: 'POST',
-        headers: admin(),
+        headers: h.admin(),
         json: { url: 'https://hooks.test/in', events: ['post.created'] },
       });
       await h.request('/v1/posts', { method: 'POST', headers: await h.as({ user: 'alice' }), json: { title: 'Webhook me' } });
@@ -145,7 +141,7 @@ describe('limits, merges, CSRF, health and edge caching', () => {
     expect(await config()).toBe('Demo App');
     h.db.prepare("UPDATE projects SET name = 'Renamed directly' WHERE id = ?").run(h.project.id);
     expect(await config()).toBe('Demo App');
-    await h.request('/v1/admin/settings', { method: 'PATCH', headers: admin(), json: { autoApprove: true } });
+    await h.request('/v1/admin/settings', { method: 'PATCH', headers: h.admin(), json: { autoApprove: true } });
     expect(await config()).toBe('Renamed directly');
   });
 

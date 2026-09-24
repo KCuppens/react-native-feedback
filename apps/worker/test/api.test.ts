@@ -1,33 +1,13 @@
 import { verifyWebhook } from '@kobecuppens/feedback-core/server';
 import type { BoardConfig, Comment, Page, Post, Updates, WebhookConfig } from '@kobecuppens/feedback-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createHarness, type Harness } from './harness';
+import { createHarness, json, type Harness } from './harness';
 
 let h: Harness;
 beforeEach(async () => {
   h = await createHarness();
 });
 afterEach(() => vi.unstubAllGlobals());
-
-const json = async <T>(res: Response | Promise<Response>, status = 200): Promise<T> => {
-  const r = await res;
-  const body = await r.text();
-  expect(r.status, body).toBe(status);
-  return (body ? JSON.parse(body) : undefined) as T;
-};
-
-const admin = () => ({ Authorization: `Bearer ${h.project.secretKey}` });
-
-async function createPost(who: Parameters<Harness['as']>[0], title = 'Dark mode please', extra: Record<string, unknown> = {}) {
-  return json<Post>(
-    h.request('/v1/posts', { method: 'POST', headers: await h.as(who), json: { title, body: 'It hurts my eyes', ...extra } }),
-    201,
-  );
-}
-
-async function approve(id: string) {
-  return json<Post>(h.request(`/v1/admin/posts/${id}/approve`, { method: 'POST', headers: admin() }));
-}
 
 describe('identity', () => {
   it('requires a project key', async () => {
@@ -89,7 +69,7 @@ describe('identity', () => {
 
 describe('moderation and visibility', () => {
   it('keeps pending posts private to their author until approved', async () => {
-    const post = await createPost({ user: 'alice', name: 'Alice' });
+    const post = await h.createPost({ user: 'alice', name: 'Alice' });
     expect(post).toMatchObject({ moderation: 'pending', isMine: true, myVote: 1, score: 1, upvotes: 1 });
     expect(post.author.name).toBe('Alice');
 
@@ -99,7 +79,7 @@ describe('moderation and visibility', () => {
     expect(bobList.items).toEqual([]);
     expect((await h.request(`/v1/posts/${post.id}`, { headers: await h.as({ user: 'bob' }) })).status).toBe(404);
 
-    await approve(post.id);
+    await h.approve(post.id);
     const after = await json<Page<Post>>(h.request('/v1/posts', { headers: await h.as({ user: 'bob' }) }));
     expect(after.items).toHaveLength(1);
     expect(after.items[0]).toMatchObject({ isMine: false, myVote: 0 });
@@ -107,12 +87,12 @@ describe('moderation and visibility', () => {
 
   it('auto-approves when configured', async () => {
     h.setSettings({ autoApprove: true });
-    expect((await createPost({ user: 'alice' })).moderation).toBe('approved');
+    expect((await h.createPost({ user: 'alice' })).moderation).toBe('approved');
   });
 
   it('shows declined posts with a reason to the author only', async () => {
-    const post = await createPost({ user: 'alice', email: 'alice@example.com' });
-    await json(h.request(`/v1/admin/posts/${post.id}/decline`, { method: 'POST', headers: admin(), json: { reason: 'Duplicate' } }));
+    const post = await h.createPost({ user: 'alice', email: 'alice@example.com' });
+    await json(h.request(`/v1/admin/posts/${post.id}/decline`, { method: 'POST', headers: h.admin(), json: { reason: 'Duplicate' } }));
     const mine = await json<Post>(h.request(`/v1/posts/${post.id}`, { headers: await h.as({ user: 'alice' }) }));
     expect(mine).toMatchObject({ moderation: 'declined', declineReason: 'Duplicate' });
     expect((await h.request(`/v1/posts/${post.id}`, { headers: await h.as({ user: 'bob' }) })).status).toBe(404);
@@ -120,17 +100,17 @@ describe('moderation and visibility', () => {
   });
 
   it('emails the admin about new posts awaiting review', async () => {
-    await createPost({ user: 'alice' });
+    await h.createPost({ user: 'alice' });
     expect(h.emails).toHaveLength(1);
     expect(h.emails[0]).toMatchObject({ to: 'owner@example.com', subject: expect.stringContaining('Dark mode please') });
     h.setSettings({ adminEmail: 'team@app.io' });
-    await createPost({ user: 'alice' }, 'Second idea');
+    await h.createPost({ user: 'alice' }, 'Second idea');
     expect(h.emails[1]!.to).toBe('team@app.io');
   });
 
   it('sends no email when FEATURE_EMAIL is off', async () => {
     h = await createHarness({ FEATURE_EMAIL: 'false' });
-    await createPost({ user: 'alice' });
+    await h.createPost({ user: 'alice' });
     expect(h.emails).toHaveLength(0);
   });
 
@@ -138,7 +118,7 @@ describe('moderation and visibility', () => {
     const headers = await h.as({ user: 'alice' });
     expect((await h.request('/v1/posts', { method: 'POST', headers, json: { title: 'x' } })).status).toBe(400);
     expect((await h.request('/v1/posts', { method: 'POST', headers, json: { title: 'Fine title', categoryId: 'nope' } })).status).toBe(400);
-    for (let i = 0; i < 10; i++) await createPost({ user: 'alice' }, `Idea number ${i}`);
+    for (let i = 0; i < 10; i++) await h.createPost({ user: 'alice' }, `Idea number ${i}`);
     const res = await h.request('/v1/posts', { method: 'POST', headers, json: { title: 'One too many' } });
     expect(res.status).toBe(429);
   });
@@ -146,8 +126,8 @@ describe('moderation and visibility', () => {
 
 describe('voting', () => {
   it('toggles, switches and keeps counters consistent', async () => {
-    const post = await createPost({ user: 'alice' });
-    await approve(post.id);
+    const post = await h.createPost({ user: 'alice' });
+    await h.approve(post.id);
     const bob = await h.as({ user: 'bob' });
     const vote = (value: number) => json<Post>(h.request(`/v1/posts/${post.id}/vote`, { method: 'POST', headers: bob, json: { value } }));
 
@@ -158,14 +138,14 @@ describe('voting', () => {
   });
 
   it('rejects votes on pending posts and disabled downvotes', async () => {
-    const post = await createPost({ user: 'alice' });
+    const post = await h.createPost({ user: 'alice' });
     const bob = await h.as({ user: 'bob' });
     // Pending posts are invisible to others.
     expect((await h.request(`/v1/posts/${post.id}/vote`, { method: 'POST', headers: bob, json: { value: 1 } })).status).toBe(404);
     const alice = await h.as({ user: 'alice' });
     expect((await h.request(`/v1/posts/${post.id}/vote`, { method: 'POST', headers: alice, json: { value: 1 } })).status).toBe(409);
 
-    await approve(post.id);
+    await h.approve(post.id);
     h.setSettings({ allowDownvotes: false });
     const res = await h.request(`/v1/posts/${post.id}/vote`, { method: 'POST', headers: bob, json: { value: -1 } });
     expect(res.status).toBe(403);
@@ -174,8 +154,8 @@ describe('voting', () => {
 
   it('sorts by top and new', async () => {
     h.setSettings({ autoApprove: true });
-    const a = await createPost({ user: 'alice' }, 'First idea');
-    const b = await createPost({ user: 'bob' }, 'Second idea');
+    const a = await h.createPost({ user: 'alice' }, 'First idea');
+    const b = await h.createPost({ user: 'bob' }, 'Second idea');
     await h.request(`/v1/posts/${a.id}/vote`, { method: 'POST', headers: await h.as({ user: 'carol' }), json: { value: 1 } });
     const top = await json<Page<Post>>(h.request('/v1/posts?sort=top', { headers: await h.as({}) }));
     expect(top.items.map((p) => p.id)).toEqual([a.id, b.id]);
@@ -188,7 +168,7 @@ describe('voting', () => {
 
   it('paginates with cursors', async () => {
     h.setSettings({ autoApprove: true });
-    for (let i = 0; i < 5; i++) await createPost({ user: `u${i}` }, `Idea ${i} here`);
+    for (let i = 0; i < 5; i++) await h.createPost({ user: `u${i}` }, `Idea ${i} here`);
     const first = await json<Page<Post>>(h.request('/v1/posts?limit=3', { headers: await h.as({}) }));
     expect(first.items).toHaveLength(3);
     const second = await json<Page<Post>>(h.request(`/v1/posts?limit=3&cursor=${first.nextCursor}`, { headers: await h.as({}) }));
@@ -200,11 +180,11 @@ describe('voting', () => {
 describe('admin surfaces and flags', () => {
   it('disables the admin API key when FEATURE_ADMIN_API is off', async () => {
     h = await createHarness({ FEATURE_ADMIN_API: 'false' });
-    expect((await h.request('/v1/admin/queue', { headers: admin() })).status).toBe(404);
+    expect((await h.request('/v1/admin/queue', { headers: h.admin() })).status).toBe(404);
   });
 
   it('requires inAppAdmin for admin claims, and never lets moderators change settings', async () => {
-    const post = await createPost({ user: 'alice' });
+    const post = await h.createPost({ user: 'alice' });
     const boss = await h.as({ user: 'boss', isAdmin: true });
     expect((await h.request('/v1/admin/queue', { headers: boss })).status).toBe(403);
     expect((await json<BoardConfig>(h.request('/v1/config', { headers: boss }))).viewer.isAdmin).toBe(false);
@@ -223,11 +203,11 @@ describe('admin surfaces and flags', () => {
 
   it('validates settings patches', async () => {
     const ok = await json<{ autoApprove: boolean }>(
-      h.request('/v1/admin/settings', { method: 'PATCH', headers: admin(), json: { autoApprove: true, adminEmail: 'a@b.co' } }),
+      h.request('/v1/admin/settings', { method: 'PATCH', headers: h.admin(), json: { autoApprove: true, adminEmail: 'a@b.co' } }),
     );
     expect(ok).toMatchObject({ autoApprove: true, adminEmail: 'a@b.co' });
-    expect((await h.request('/v1/admin/settings', { method: 'PATCH', headers: admin(), json: { isGod: true } })).status).toBe(400);
-    expect((await h.request('/v1/admin/settings', { method: 'PATCH', headers: admin(), json: { autoApprove: 'yes' } })).status).toBe(400);
+    expect((await h.request('/v1/admin/settings', { method: 'PATCH', headers: h.admin(), json: { isGod: true } })).status).toBe(400);
+    expect((await h.request('/v1/admin/settings', { method: 'PATCH', headers: h.admin(), json: { autoApprove: 'yes' } })).status).toBe(400);
   });
 
   it('gates the dashboard and SPAs behind their flags', async () => {
@@ -254,7 +234,7 @@ describe('admin surfaces and flags', () => {
     const list = await json<{ id: string; pendingCount: number }[]>(h.request('/v1/dashboard/projects', { headers: { Cookie: cookie } }));
     expect(list).toHaveLength(2);
 
-    await createPost({ user: 'alice' });
+    await h.createPost({ user: 'alice' });
     const queue = await json<Page<Post>>(h.request('/v1/admin/queue', { headers: { Cookie: cookie, 'X-Feedback-Project': h.project.id } }));
     expect(queue.items).toHaveLength(1);
     // The session alone, without a project header, grants nothing.
@@ -264,7 +244,7 @@ describe('admin surfaces and flags', () => {
     const rotated = await json<{ secretKey: string }>(
       h.request(`/v1/dashboard/projects/${h.project.id}/rotate`, { method: 'POST', headers: { Cookie: cookie }, json: { key: 'secret' } }),
     );
-    expect((await h.request('/v1/admin/queue', { headers: admin() })).status).toBe(401);
+    expect((await h.request('/v1/admin/queue', { headers: h.admin() })).status).toBe(401);
     expect((await h.request('/v1/admin/queue', { headers: { Authorization: `Bearer ${rotated.secretKey}` } })).status).toBe(200);
   });
 
@@ -276,11 +256,11 @@ describe('admin surfaces and flags', () => {
 
   it('merges duplicates and carries votes over', async () => {
     h.setSettings({ autoApprove: true });
-    const target = await createPost({ user: 'alice' }, 'Dark mode');
-    const dupe = await createPost({ user: 'bob' }, 'Night theme');
+    const target = await h.createPost({ user: 'alice' }, 'Dark mode');
+    const dupe = await h.createPost({ user: 'bob' }, 'Night theme');
     await h.request(`/v1/posts/${dupe.id}/vote`, { method: 'POST', headers: await h.as({ user: 'carol' }), json: { value: 1 } });
     const merged = await json<Post>(
-      h.request(`/v1/admin/posts/${dupe.id}/merge`, { method: 'POST', headers: admin(), json: { intoId: target.id } }),
+      h.request(`/v1/admin/posts/${dupe.id}/merge`, { method: 'POST', headers: h.admin(), json: { intoId: target.id } }),
     );
     expect(merged.upvotes).toBe(3);
     const list = await json<Page<Post>>(h.request('/v1/posts', { headers: await h.as({}) }));
@@ -292,16 +272,16 @@ describe('admin surfaces and flags', () => {
   it('manages categories and filters by them', async () => {
     h.setSettings({ autoApprove: true });
     const bug = await json<{ id: string }>(
-      h.request('/v1/admin/categories', { method: 'POST', headers: admin(), json: { name: 'Bug', color: '#f00' } }),
+      h.request('/v1/admin/categories', { method: 'POST', headers: h.admin(), json: { name: 'Bug', color: '#f00' } }),
       201,
     );
-    await createPost({ user: 'alice' }, 'Crash on launch', { categoryId: bug.id });
-    await createPost({ user: 'alice' }, 'Dark mode');
+    await h.createPost({ user: 'alice' }, 'Crash on launch', { categoryId: bug.id });
+    await h.createPost({ user: 'alice' }, 'Dark mode');
     const config = await json<BoardConfig>(h.request('/v1/config', { headers: await h.as({}) }));
     expect(config.categories).toEqual([{ id: bug.id, name: 'Bug', color: '#f00', sort: 0 }]);
     const bugs = await json<Page<Post>>(h.request(`/v1/posts?category=${bug.id}`, { headers: await h.as({}) }));
     expect(bugs.items.map((p) => p.title)).toEqual(['Crash on launch']);
-    await h.request(`/v1/admin/categories/${bug.id}`, { method: 'DELETE', headers: admin() });
+    await h.request(`/v1/admin/categories/${bug.id}`, { method: 'DELETE', headers: h.admin() });
     const all = await json<Page<Post>>(h.request('/v1/posts', { headers: await h.as({}) }));
     expect(all.items.every((p) => p.category === null)).toBe(true);
   });
@@ -309,12 +289,12 @@ describe('admin surfaces and flags', () => {
 
 describe('comments, roadmap and updates', () => {
   it('threads comments, marks official replies and surfaces updates', async () => {
-    const post = await createPost({ user: 'alice', email: 'alice@example.com' });
-    await approve(post.id);
+    const post = await h.createPost({ user: 'alice', email: 'alice@example.com' });
+    await h.approve(post.id);
     const bob = await h.as({ user: 'bob', name: 'Bob' });
     await json<Comment>(h.request(`/v1/posts/${post.id}/comments`, { method: 'POST', headers: bob, json: { body: '+1 from me' } }), 201);
     const reply = await json<Comment>(
-      h.request(`/v1/admin/posts/${post.id}/comments`, { method: 'POST', headers: admin(), json: { body: 'On it!' } }),
+      h.request(`/v1/admin/posts/${post.id}/comments`, { method: 'POST', headers: h.admin(), json: { body: 'On it!' } }),
       201,
     );
     expect(reply).toMatchObject({ isOfficial: true, author: { isAdmin: true } });
@@ -323,7 +303,7 @@ describe('comments, roadmap and updates', () => {
     expect(comments.items.map((c) => c.body)).toEqual(['+1 from me', 'On it!']);
     expect((await json<Post>(h.request(`/v1/posts/${post.id}`, { headers: bob }))).commentCount).toBe(2);
 
-    await json(h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: admin(), json: { status: 'planned' } }));
+    await json(h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: h.admin(), json: { status: 'planned' } }));
     expect(h.emails.at(-1)).toMatchObject({ to: 'alice@example.com', subject: expect.stringContaining('Planned') });
 
     const alice = await h.as({ user: 'alice' });
@@ -340,13 +320,13 @@ describe('comments, roadmap and updates', () => {
     expect(roadmap.map((c) => c.status)).toEqual(['planned', 'in_progress', 'done']);
     expect(roadmap[0]!.posts.map((p) => p.id)).toEqual([post.id]);
 
-    await h.request(`/v1/admin/posts/${post.id}/comments/${reply.id}`, { method: 'DELETE', headers: admin() });
+    await h.request(`/v1/admin/posts/${post.id}/comments/${reply.id}`, { method: 'DELETE', headers: h.admin() });
     expect((await json<Page<Comment>>(h.request(`/v1/posts/${post.id}/comments`, { headers: bob }))).items).toHaveLength(1);
   });
 
   it('honours comment and roadmap switches', async () => {
     h.setSettings({ autoApprove: true, allowComments: false, roadmapEnabled: false });
-    const post = await createPost({ user: 'alice' });
+    const post = await h.createPost({ user: 'alice' });
     const res = await h.request(`/v1/posts/${post.id}/comments`, {
       method: 'POST',
       headers: await h.as({ user: 'bob' }),
@@ -370,7 +350,7 @@ describe('uploads', () => {
     const attachment = await json<{ id: string; url: string }>(res, 201);
     expect(attachment.url).toBe(`https://feedback.test/v1/files/${attachment.id}`);
 
-    const post = await createPost({ user: 'alice' }, 'With screenshot', { attachmentIds: [attachment.id] });
+    const post = await h.createPost({ user: 'alice' }, 'With screenshot', { attachmentIds: [attachment.id] });
     expect(post.attachments.map((a) => a.id)).toEqual([attachment.id]);
 
     const file = await h.request(`/v1/files/${attachment.id}`);
@@ -378,7 +358,7 @@ describe('uploads', () => {
     expect(new Uint8Array(await file.arrayBuffer())).toEqual(new Uint8Array([137, 80, 78, 71]));
 
     expect(h.files.store.size).toBe(1);
-    await h.request(`/v1/admin/posts/${post.id}`, { method: 'DELETE', headers: admin() });
+    await h.request(`/v1/admin/posts/${post.id}`, { method: 'DELETE', headers: h.admin() });
     expect(h.files.store.size).toBe(0);
   });
 
@@ -410,14 +390,14 @@ describe('webhooks', () => {
     const hook = await json<WebhookConfig>(
       h.request('/v1/admin/webhooks', {
         method: 'POST',
-        headers: admin(),
+        headers: h.admin(),
         json: { url: 'https://hooks.test/in', events: ['post.approved'] },
       }),
       201,
     );
-    const post = await createPost({ user: 'alice' });
+    const post = await h.createPost({ user: 'alice' });
     expect(calls).toHaveLength(0);
-    await approve(post.id);
+    await h.approve(post.id);
     expect(calls).toHaveLength(1);
     const call = calls[0]!;
     expect(call.headers.get('X-Feedback-Event')).toBe('post.approved');
@@ -425,7 +405,7 @@ describe('webhooks', () => {
     expect(JSON.parse(call.body)).toMatchObject({ type: 'post.approved', data: { post: { id: post.id, moderation: 'approved' } } });
 
     expect(
-      (await h.request('/v1/admin/webhooks', { method: 'POST', headers: admin(), json: { url: 'https://x.test', events: ['nope'] } }))
+      (await h.request('/v1/admin/webhooks', { method: 'POST', headers: h.admin(), json: { url: 'https://x.test', events: ['nope'] } }))
         .status,
     ).toBe(400);
   });

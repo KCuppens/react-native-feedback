@@ -2,38 +2,24 @@ import type { Category, Comment, Page, Post, ProjectSettings, WebhookConfig } fr
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventMessage } from '../src/env';
 import worker from '../src/index';
-import { createHarness, type Harness } from './harness';
+import { createHarness, json, type Harness } from './harness';
 
 let h: Harness;
 beforeEach(async () => {
   h = await createHarness();
 });
 
-const json = async <T>(res: Response | Promise<Response>, status = 200): Promise<T> => {
-  const r = await res;
-  const body = await r.text();
-  expect(r.status, body).toBe(status);
-  return (body ? JSON.parse(body) : undefined) as T;
-};
-const admin = (extra: Record<string, string> = {}) => ({ Authorization: `Bearer ${h.project.secretKey}`, ...extra });
-const createPost = async (user: string, title: string, extra: Record<string, unknown> = {}) =>
-  json<Post>(h.request('/v1/posts', { method: 'POST', headers: await h.as({ user }), json: { title, ...extra } }), 201);
-async function dashboardCookie(): Promise<string> {
-  const login = await h.request('/v1/dashboard/login', { method: 'POST', json: { password: 'correct horse battery staple' } });
-  return login.headers.get('Set-Cookie')!.split(';')[0]!;
-}
-
 describe('admin post management', () => {
   it('lists every post with moderation, status, search and merged filters', async () => {
-    const pending = await createPost('alice', 'Pending idea');
-    const approved = await createPost('bob', 'Approved idea');
-    const declined = await createPost('carol', 'Declined idea');
-    await h.request(`/v1/admin/posts/${approved.id}/approve`, { method: 'POST', headers: admin() });
-    await h.request(`/v1/admin/posts/${declined.id}/decline`, { method: 'POST', headers: admin(), json: {} });
-    await h.request(`/v1/admin/posts/${approved.id}`, { method: 'PATCH', headers: admin(), json: { status: 'planned' } });
+    const pending = await h.createPost({ user: 'alice' }, 'Pending idea');
+    const approved = await h.createPost({ user: 'bob' }, 'Approved idea');
+    const declined = await h.createPost({ user: 'carol' }, 'Declined idea');
+    await h.request(`/v1/admin/posts/${approved.id}/approve`, { method: 'POST', headers: h.admin() });
+    await h.request(`/v1/admin/posts/${declined.id}/decline`, { method: 'POST', headers: h.admin(), json: {} });
+    await h.request(`/v1/admin/posts/${approved.id}`, { method: 'PATCH', headers: h.admin(), json: { status: 'planned' } });
 
     const titles = async (query: string) =>
-      (await json<Page<Post>>(h.request(`/v1/admin/posts${query}`, { headers: admin() }))).items.map((p) => p.title).sort();
+      (await json<Page<Post>>(h.request(`/v1/admin/posts${query}`, { headers: h.admin() }))).items.map((p) => p.title).sort();
     expect(await titles('')).toEqual(['Approved idea', 'Declined idea', 'Pending idea']);
     expect(await titles('?moderation=pending')).toEqual(['Pending idea']);
     expect(await titles('?moderation=declined')).toEqual(['Declined idea']);
@@ -41,50 +27,50 @@ describe('admin post management', () => {
     expect(await titles('?status=planned')).toEqual(['Approved idea']);
     expect(await titles('?q=declined')).toEqual(['Declined idea']);
 
-    await h.request(`/v1/admin/posts/${pending.id}/merge`, { method: 'POST', headers: admin(), json: { intoId: approved.id } });
+    await h.request(`/v1/admin/posts/${pending.id}/merge`, { method: 'POST', headers: h.admin(), json: { intoId: approved.id } });
     expect(await titles('')).toEqual(['Approved idea', 'Declined idea']);
     expect(await titles('?merged=1')).toEqual(['Approved idea', 'Declined idea', 'Pending idea']);
   });
 
   it('edits title and body, and rejects bad patches', async () => {
-    const post = await createPost('alice', 'Typo titel');
+    const post = await h.createPost({ user: 'alice' }, 'Typo titel');
     const edited = await json<Post>(
-      h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: admin(), json: { title: 'Typo title', body: 'Fixed' } }),
+      h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: h.admin(), json: { title: 'Typo title', body: 'Fixed' } }),
     );
     expect(edited).toMatchObject({ title: 'Typo title', body: 'Fixed', status: 'open' });
     // Same status is a no-op, not a status change event.
-    await json(h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: admin(), json: { status: 'open' } }));
+    await json(h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: h.admin(), json: { status: 'open' } }));
     expect(h.db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'post.status_changed'").get()).toEqual({ n: 0 });
 
     const bad = (patch: Record<string, unknown>) =>
-      h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: admin(), json: patch });
+      h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: h.admin(), json: patch });
     expect((await bad({ status: 'shipped' })).status).toBe(400);
     expect((await bad({ status: 3 })).status).toBe(400);
     expect((await bad({ title: 'x' })).status).toBe(400);
     expect((await bad({ categoryId: 'missing' })).status).toBe(400);
-    expect((await h.request('/v1/admin/posts/nope', { method: 'PATCH', headers: admin(), json: {} })).status).toBe(404);
+    expect((await h.request('/v1/admin/posts/nope', { method: 'PATCH', headers: h.admin(), json: {} })).status).toBe(404);
   });
 
   it('rejects merging a post into itself or into an already merged post', async () => {
-    const a = await createPost('alice', 'Post A');
-    const b = await createPost('bob', 'Post B');
-    const c = await createPost('carol', 'Post C');
+    const a = await h.createPost({ user: 'alice' }, 'Post A');
+    const b = await h.createPost({ user: 'bob' }, 'Post B');
+    const c = await h.createPost({ user: 'carol' }, 'Post C');
     const merge = (id: string, intoId: string) =>
-      h.request(`/v1/admin/posts/${id}/merge`, { method: 'POST', headers: admin(), json: { intoId } });
+      h.request(`/v1/admin/posts/${id}/merge`, { method: 'POST', headers: h.admin(), json: { intoId } });
     expect((await merge(a.id, a.id)).status).toBe(400);
     expect((await merge(b.id, a.id)).status).toBe(200);
     expect((await merge(c.id, b.id)).status).toBe(400);
   });
 
   it('lists comments for any post, including pending ones, and 404s deleted comments', async () => {
-    const post = await createPost('alice', 'Pending with reply');
+    const post = await h.createPost({ user: 'alice' }, 'Pending with reply');
     const reply = await json<Comment>(
-      h.request(`/v1/admin/posts/${post.id}/comments`, { method: 'POST', headers: admin(), json: { body: 'Looking' } }),
+      h.request(`/v1/admin/posts/${post.id}/comments`, { method: 'POST', headers: h.admin(), json: { body: 'Looking' } }),
       201,
     );
-    const list = await json<Page<Comment>>(h.request(`/v1/admin/posts/${post.id}/comments`, { headers: admin() }));
+    const list = await json<Page<Comment>>(h.request(`/v1/admin/posts/${post.id}/comments`, { headers: h.admin() }));
     expect(list.items.map((c) => c.body)).toEqual(['Looking']);
-    const del = () => h.request(`/v1/admin/posts/${post.id}/comments/${reply.id}`, { method: 'DELETE', headers: admin() });
+    const del = () => h.request(`/v1/admin/posts/${post.id}/comments/${reply.id}`, { method: 'DELETE', headers: h.admin() });
     expect((await del()).status).toBe(204);
     expect((await del()).status).toBe(404);
   });
@@ -92,15 +78,15 @@ describe('admin post management', () => {
 
 describe('project configuration', () => {
   it('updates categories and validates input', async () => {
-    const cat = await json<Category>(h.request('/v1/admin/categories', { method: 'POST', headers: admin(), json: { name: 'Bug' } }), 201);
+    const cat = await json<Category>(h.request('/v1/admin/categories', { method: 'POST', headers: h.admin(), json: { name: 'Bug' } }), 201);
     const second = await json<Category>(
-      h.request('/v1/admin/categories', { method: 'POST', headers: admin(), json: { name: 'Idea' } }),
+      h.request('/v1/admin/categories', { method: 'POST', headers: h.admin(), json: { name: 'Idea' } }),
       201,
     );
     expect([cat.sort, second.sort]).toEqual([0, 1]);
 
     const patch = (id: string, body: Record<string, unknown>) =>
-      h.request(`/v1/admin/categories/${id}`, { method: 'PATCH', headers: admin(), json: body });
+      h.request(`/v1/admin/categories/${id}`, { method: 'PATCH', headers: h.admin(), json: body });
     expect(await json<Category>(patch(cat.id, { name: 'Bugs', color: '#ff0000', sort: 5 }))).toEqual({
       id: cat.id,
       name: 'Bugs',
@@ -111,22 +97,22 @@ describe('project configuration', () => {
     expect((await patch(cat.id, { sort: 1.5 })).status).toBe(400);
     expect((await patch(cat.id, { name: '' })).status).toBe(400);
     expect((await patch('missing', { name: 'X' })).status).toBe(404);
-    expect((await h.request('/v1/admin/categories/missing', { method: 'DELETE', headers: admin() })).status).toBe(404);
+    expect((await h.request('/v1/admin/categories/missing', { method: 'DELETE', headers: h.admin() })).status).toBe(404);
 
-    const list = await json<Category[]>(h.request('/v1/admin/categories', { headers: admin() }));
+    const list = await json<Category[]>(h.request('/v1/admin/categories', { headers: h.admin() }));
     expect(list.map((c) => c.name)).toEqual(['Idea', 'Bugs']);
   });
 
   it('lists and deletes webhooks, and checks their URL', async () => {
     const create = (url: string) =>
-      h.request('/v1/admin/webhooks', { method: 'POST', headers: admin(), json: { url, events: ['post.created', 'post.created'] } });
+      h.request('/v1/admin/webhooks', { method: 'POST', headers: h.admin(), json: { url, events: ['post.created', 'post.created'] } });
     const hook = await json<WebhookConfig>(create('http://hooks.test/in'), 201);
     expect(hook.events).toEqual(['post.created']);
     expect(hook.secret).toMatch(/^whsec_/);
     expect((await create('not a url at all')).status).toBe(400);
 
-    expect(await json<WebhookConfig[]>(h.request('/v1/admin/webhooks', { headers: admin() }))).toEqual([hook]);
-    const del = () => h.request(`/v1/admin/webhooks/${hook.id}`, { method: 'DELETE', headers: admin() });
+    expect(await json<WebhookConfig[]>(h.request('/v1/admin/webhooks', { headers: h.admin() }))).toEqual([hook]);
+    const del = () => h.request(`/v1/admin/webhooks/${hook.id}`, { method: 'DELETE', headers: h.admin() });
     expect((await del()).status).toBe(204);
     expect((await del()).status).toBe(404);
   });
@@ -135,7 +121,7 @@ describe('project configuration', () => {
     h = await createHarness({ ENVIRONMENT: 'production' });
     const res = await h.request('/v1/admin/webhooks', {
       method: 'POST',
-      headers: admin(),
+      headers: h.admin(),
       json: { url: 'http://hooks.test/in', events: ['post.created'] },
     });
     expect(res.status).toBe(400);
@@ -143,21 +129,21 @@ describe('project configuration', () => {
 
   it('returns current settings', async () => {
     h.setSettings({ autoApprove: true });
-    const settings = await json<ProjectSettings>(h.request('/v1/admin/settings', { headers: admin() }));
+    const settings = await json<ProjectSettings>(h.request('/v1/admin/settings', { headers: h.admin() }));
     expect(settings).toMatchObject({ autoApprove: true, allowAnonymous: true, adminEmail: null });
   });
 
   it('rejects admin calls with no credentials, a bad key, or an unknown project', async () => {
     expect((await h.request('/v1/admin/queue')).status).toBe(401);
     expect((await h.request('/v1/admin/queue', { headers: { Authorization: 'Bearer sk_wrong' } })).status).toBe(401);
-    const cookie = await dashboardCookie();
+    const cookie = await h.dashboardCookie();
     expect((await h.request('/v1/admin/queue', { headers: { Cookie: cookie, 'X-Feedback-Project': 'nope' } })).status).toBe(404);
   });
 });
 
 describe('dashboard project management', () => {
   it('reads secrets and rotates each key', async () => {
-    const cookie = await dashboardCookie();
+    const cookie = await h.dashboardCookie();
     const url = `/v1/dashboard/projects/${h.project.id}`;
     expect(await json(h.request(`${url}/secrets`, { headers: { Cookie: cookie } }))).toEqual({
       publicKey: h.project.publicKey,
@@ -182,7 +168,7 @@ describe('dashboard project management', () => {
   });
 
   it('renames projects and guards slugs', async () => {
-    const cookie = await dashboardCookie();
+    const cookie = await h.dashboardCookie();
     await h.addProject('proj_2', 'taken');
     const patch = (body: Record<string, unknown>, id = h.project.id) =>
       h.request(`/v1/dashboard/projects/${id}`, { method: 'PATCH', headers: { Cookie: cookie }, json: body });
@@ -197,10 +183,10 @@ describe('dashboard project management', () => {
     const form = new FormData();
     form.append('file', new File(['x'], 'a.png', { type: 'image/png' }));
     await json(h.request('/v1/uploads', { method: 'POST', headers: await h.as({ user: 'alice' }), body: form }), 201);
-    await createPost('alice', 'Soon gone');
+    await h.createPost({ user: 'alice' }, 'Soon gone');
     expect(h.files.store.size).toBe(1);
 
-    const cookie = await dashboardCookie();
+    const cookie = await h.dashboardCookie();
     const del = () => h.request(`/v1/dashboard/projects/${h.project.id}`, { method: 'DELETE', headers: { Cookie: cookie } });
     expect((await del()).status).toBe(204);
     expect(h.files.store.size).toBe(0);

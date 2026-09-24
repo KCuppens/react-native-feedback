@@ -2,10 +2,22 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import type { Post } from '@kobecuppens/feedback-core';
 import { signFeedbackUser } from '@kobecuppens/feedback-core/server';
+import { expect } from 'vitest';
 import type { EmailMessage, Env } from '../src/env';
 import { app } from '../src/index';
 import { generateProjectKeys, sha256Hex } from '../src/util';
+
+/** Await a response, assert its status (showing the body on failure) and parse it. */
+export async function json<T>(res: Response | Promise<Response>, status = 200): Promise<T> {
+  const r = await res;
+  const body = await r.text();
+  expect(r.status, body).toBe(status);
+  return (body ? JSON.parse(body) : undefined) as T;
+}
+
+type Who = { user?: string; name?: string; email?: string; isAdmin?: boolean; anon?: string };
 
 class Statement {
   constructor(
@@ -92,10 +104,18 @@ export interface Harness {
   request: (path: string, init?: RequestInit & { json?: unknown }) => Promise<Response>;
   userToken: (claims: { id: string; name?: string; email?: string; isAdmin?: boolean }) => Promise<string>;
   /** Headers for a public request as a signed user or an anonymous device. */
-  as: (who: { user?: string; name?: string; email?: string; isAdmin?: boolean; anon?: string }) => Promise<Record<string, string>>;
+  as: (who: Who) => Promise<Record<string, string>>;
   setSettings: (patch: Record<string, unknown>) => void;
   /** Insert another tenant; returns its keys and an `as` helper bound to it. */
   addProject: (id: string, slug: string) => Promise<{ id: string; publicKey: string; secretKey: string; as: Harness['as'] }>;
+  /** Admin API headers (the project's secret key), plus any extra ones. */
+  admin: (extra?: Record<string, string>) => Record<string, string>;
+  /** Submit a post as `who` and assert it was created. */
+  createPost: (who: Who, title?: string, extra?: Record<string, unknown>) => Promise<Post>;
+  approve: (id: string) => Promise<Post>;
+  eventCount: (type: string) => number;
+  /** Sign in to the dashboard; returns the `name=value` session cookie. */
+  dashboardCookie: () => Promise<string>;
 }
 
 async function insertProject(db: DatabaseSync, id: string, slug: string) {
@@ -158,6 +178,9 @@ export async function createHarness(envOverrides: Partial<Env> = {}): Promise<Ha
   const userToken = (claims: { id: string; name?: string; email?: string; isAdmin?: boolean }) =>
     signFeedbackUser(claims, keys.signingSecret);
 
+  const admin = (extra: Record<string, string> = {}) => ({ Authorization: `Bearer ${project.secretKey}`, ...extra });
+  const as = asHelper(keys);
+
   return {
     env,
     db: DB.raw,
@@ -166,7 +189,17 @@ export async function createHarness(envOverrides: Partial<Env> = {}): Promise<Ha
     project,
     request,
     userToken,
-    as: asHelper(keys),
+    as,
+    admin,
+    createPost: async (who, title = 'Dark mode please', extra = {}) =>
+      json<Post>(request('/v1/posts', { method: 'POST', headers: await as(who), json: { title, ...extra } }), 201),
+    approve: (id) => json<Post>(request(`/v1/admin/posts/${id}/approve`, { method: 'POST', headers: admin() })),
+    eventCount: (type) => (DB.raw.prepare('SELECT COUNT(*) AS n FROM events WHERE type = ?').get(type) as { n: number }).n,
+    dashboardCookie: async () => {
+      const res = await request('/v1/dashboard/login', { method: 'POST', json: { password: env.ADMIN_PASSWORD } });
+      expect(res.status).toBe(200);
+      return res.headers.get('Set-Cookie')!.split(';')[0]!;
+    },
     addProject: async (id, slug) => {
       const other = await insertProject(DB.raw, id, slug);
       return { ...other, as: asHelper(other) };

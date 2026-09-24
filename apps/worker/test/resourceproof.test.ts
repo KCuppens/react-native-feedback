@@ -62,7 +62,7 @@ describe('query limits, indexes, sessions and webhook caps', () => {
   });
 
   it('caps webhooks per project', async () => {
-    const admin = { Authorization: `Bearer ${h.project.secretKey}` };
+    const admin = h.admin();
     const create = () =>
       h.request('/v1/admin/webhooks', { method: 'POST', headers: admin, json: { url: 'https://hooks.test/x', events: ['post.created'] } });
     for (let i = 0; i < 10; i++) expect((await create()).status).toBe(201);
@@ -74,14 +74,11 @@ describe('query limits, indexes, sessions and webhook caps', () => {
   it('lists updates on posts the viewer wrote or voted on', async () => {
     h.setSettings({ autoApprove: true });
     const alice = await h.as({ user: 'alice' });
-    const bob = await h.as({ user: 'bob' });
-    const mk = async (title: string, headers: Record<string, string>) =>
-      (await (await h.request('/v1/posts', { method: 'POST', headers, json: { title } })).json()) as { id: string };
-    const own = await mk('Alice idea', alice);
-    const voted = await mk('Bob idea', bob);
-    await mk('Unrelated', bob);
+    const own = await h.createPost({ user: 'alice' }, 'Alice idea');
+    const voted = await h.createPost({ user: 'bob' }, 'Bob idea');
+    await h.createPost({ user: 'bob' }, 'Unrelated');
     await h.request(`/v1/posts/${voted.id}/vote`, { method: 'POST', headers: alice, json: { value: 1 } });
-    const admin = { Authorization: `Bearer ${h.project.secretKey}` };
+    const admin = h.admin();
     for (const id of [own.id, voted.id]) {
       await h.request(`/v1/admin/posts/${id}`, { method: 'PATCH', headers: admin, json: { status: 'planned' } });
     }
