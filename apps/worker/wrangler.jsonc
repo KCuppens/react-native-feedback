@@ -8,6 +8,8 @@
   //   wrangler secret put SESSION_SECRET --env production    (32+ random chars)
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "feedback-api-dev",
+  // Same Cloudflare account as the 1% Better API (api.1pbettereveryday.app).
+  "account_id": "89a137f234e5fc487144c9eb4051d397",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -42,21 +44,25 @@
   "env": {
     "production": {
       "name": "feedback-api",
+      "routes": [{ "pattern": "feedback.1pbettereveryday.app", "custom_domain": true }],
       "vars": {
         "ENVIRONMENT": "production",
         "FEATURE_DASHBOARD": "true",
         "FEATURE_ADMIN_API": "true",
         "FEATURE_PUBLIC_BOARD": "true",
         "FEATURE_EMAIL": "true",
-        "FROM_EMAIL": "feedback@example.com",
-        "FROM_NAME": "Feedback",
+        // A sending domain already verified for the 1% Better API. FROM_NAME is left unset so
+        // mail is signed with the project's name ("1% Better Feedback").
+        "FROM_EMAIL": "noreply@mail.1pbettereveryday.app",
+        "ADMIN_EMAIL": "kobecuppens@gmail.com",
+        "PUBLIC_URL": "https://feedback.1pbettereveryday.app",
         "PROJECT_CACHE_SECONDS": "30"
       },
       "d1_databases": [
         { "binding": "DB", "database_name": "feedback", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
       ],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "feedback-files" }],
-      "send_email": [{ "name": "EMAIL", "remote": true }],
+      "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["noreply@mail.1pbettereveryday.app"] }],
       "queues": {
         "producers": [{ "binding": "EVENTS", "queue": "feedback-events" }],
         "consumers": [

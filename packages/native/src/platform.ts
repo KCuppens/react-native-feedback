@@ -2,15 +2,16 @@ import type { KeyValueStorage } from '@kobecuppens/feedback-core';
 import { Platform } from 'react-native';
 import type { PickImage } from './ui';
 
-/* Optional peer dependencies are loaded lazily inside try/catch: Metro and bundlers
-   treat these as optional, so apps without them still build. */
+/* Optional peer dependencies. Each require() must sit lexically inside its own
+   try/catch: that is what Metro (and webpack) treat as an optional dependency, so apps
+   without the package still bundle. Wrapping the require in a helper function breaks it. */
 
-function optionalRequire<T>(load: () => T): T | undefined {
-  try {
-    return load();
-  } catch {
-    return undefined;
-  }
+let asyncStorageModule: ({ default?: KeyValueStorage } & KeyValueStorage) | undefined;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  asyncStorageModule = require('@react-native-async-storage/async-storage');
+} catch {
+  asyncStorageModule = undefined;
 }
 
 /** AsyncStorage on native, localStorage on web, memory otherwise (anonymous id only). */
@@ -24,11 +25,7 @@ export function defaultStorage(): KeyValueStorage | undefined {
     }
     return undefined;
   }
-  const mod = optionalRequire(
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    () => require('@react-native-async-storage/async-storage') as { default?: KeyValueStorage } & KeyValueStorage,
-  );
-  const storage = mod?.default ?? mod;
+  const storage = asyncStorageModule?.default ?? asyncStorageModule;
   return storage && typeof storage.getItem === 'function' ? storage : undefined;
 }
 
@@ -39,10 +36,13 @@ interface ImagePickerModule {
   }>;
 }
 
-const imagePicker = optionalRequire(
+let imagePicker: ImagePickerModule | undefined;
+try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  () => require('expo-image-picker') as ImagePickerModule,
-);
+  imagePicker = require('expo-image-picker');
+} catch {
+  imagePicker = undefined;
+}
 
 /** Uses expo-image-picker when installed; undefined otherwise (pass `pickImage` yourself). */
 export const defaultPickImage: PickImage | undefined = imagePicker?.launchImageLibraryAsync
