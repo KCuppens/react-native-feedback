@@ -59,7 +59,7 @@
         "PROJECT_CACHE_SECONDS": "30"
       },
       "d1_databases": [
-        { "binding": "DB", "database_name": "feedback", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+        { "binding": "DB", "database_name": "feedback", "database_id": "57c6bd36-1d2d-4b70-ade6-e77f667e7f73", "migrations_dir": "migrations" }
       ],
       "r2_buckets": [{ "binding": "FILES", "bucket_name": "feedback-files" }],
       "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["noreply@mail.1pbettereveryday.app"] }],
