@@ -67,7 +67,12 @@
       }
     },
     {
-      "includes": ["apps/dashboard/src/ui.tsx", "apps/dashboard/src/pages/PostDrawer.tsx", "packages/react/src/FeedbackBoard.tsx"],
+      "includes": [
+        "apps/dashboard/src/ui.tsx",
+        "apps/dashboard/src/pages/PostDrawer.tsx",
+        "packages/react/src/FeedbackBoard.tsx",
+        "packages/react/src/screens/FeedbackDetail.tsx"
+      ],
       "linter": {
         "rules": {
           "a11y": {

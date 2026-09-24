@@ -124,4 +124,30 @@ describe('accessibility and resilience', () => {
     fireEvent.keyDown(heading, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('heading', { level: 2, name: 'Dark mode' })).toBeNull());
   });
+
+  it('cancels an open delete confirmation on Escape instead of leaving the post', async () => {
+    const adapter = createMemoryAdapter({
+      settings: { inAppAdmin: true },
+      viewer: { id: 'me', isAdmin: true },
+      posts: [{ id: 'p1', title: 'Dark mode' }],
+    });
+    render(<FeedbackBoard adapter={adapter} locale="en" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Dark mode' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    const cancel = await screen.findByRole('button', { name: 'Cancel' });
+    await waitFor(() => expect(document.activeElement).toBe(cancel));
+    fireEvent.keyDown(cancel, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull());
+    expect(screen.getByRole('heading', { level: 2, name: 'Dark mode' })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Delete' }));
+  });
+
+  it('keeps a started draft when Escape is pressed in the submit form', async () => {
+    render(<FeedbackBoard adapter={seed()} locale="en" />);
+    fireEvent.click(await screen.findByRole('button', { name: /New idea/ }));
+    const title = screen.getByLabelText('Title');
+    fireEvent.change(title, { target: { value: 'Half an idea' } });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Submit' }), { key: 'Escape' });
+    expect(screen.getByLabelText('Title')).toBe(title);
+  });
 });

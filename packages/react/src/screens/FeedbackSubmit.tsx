@@ -79,7 +79,14 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
   return (
     <>
       <Header title={strings.submit.title} onBack={onCancel} />
-      <form {...slot('form')} onSubmit={submit}>
+      <form
+        {...slot('form')}
+        onSubmit={submit}
+        onKeyDown={(e) => {
+          // Keep a started draft: Escape-to-back (see BoardNavigator) would discard it.
+          if (e.key === 'Escape' && (title.trim() || body.trim() || categoryId || attachments.length > 0)) e.preventDefault();
+        }}
+      >
         <label {...slot('inputLabel')} htmlFor={`${ids}-title`}>
           {strings.submit.titleLabel}
         </label>

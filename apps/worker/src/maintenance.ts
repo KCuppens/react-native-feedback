@@ -16,8 +16,9 @@ const INLINE_BATCH = 25;
 export async function runMaintenance(env: Env, now = Date.now()): Promise<void> {
   const started = Date.now();
   const summary: Record<string, number | string> = {};
-  const steps: [string, () => Promise<number>][] = [
-    ['redelivered', () => redeliverStuckEvents(env, now - 5 * 60_000)],
+  // A step returns one count (logged under its name) or several named counts.
+  const steps: [string, () => Promise<number | Record<string, number>>][] = [
+    ['redelivered', () => redeliverStuckEvents(env, now - 5 * 60_000, now)],
     ['deletedUploads', () => deleteUnclaimedUploads(env, now - DAY)],
     [
       'pruned',
@@ -34,7 +35,9 @@ export async function runMaintenance(env: Env, now = Date.now()): Promise<void> 
   ];
   for (const [name, run] of steps) {
     try {
-      summary[name] = await run();
+      const result = await run();
+      if (typeof result === 'number') summary[name] = result;
+      else Object.assign(summary, result);
     } catch (error) {
       summary[name] = 'failed';
       log('error', 'maintenance step failed', { step: name, error: String(error) });
@@ -68,7 +71,11 @@ async function deleteUnclaimedUploads(env: Env, before: number): Promise<number>
  * them. With a queue they are re-enqueued, so delivery gets the queue's parallelism, backoff
  * and dead-letter handling instead of running inside the cron's time budget.
  */
-async function redeliverStuckEvents(env: Env, before: number): Promise<number> {
+async function redeliverStuckEvents(
+  env: Env,
+  before: number,
+  now: number,
+): Promise<{ redelivered: number; deadLettered: number; reenqueueFailed: number }> {
   // Count the attempt before redelivering, so an event that keeps failing is given up on
   // instead of crowding out newer stuck events every hour. One sweep after its final attempt
   // an event still unprocessed is bumped past the limit: that is when it is dead-lettered.
@@ -86,7 +93,7 @@ async function redeliverStuckEvents(env: Env, before: number): Promise<number> {
     .all<{ id: string; attempts: number; type: string; project_id: string; created_at: number }>();
   const due: string[] = [];
   for (const row of results) {
-    const fields = { eventId: row.id, type: row.type, projectId: row.project_id, ageMs: Date.now() - row.created_at };
+    const fields = { eventId: row.id, type: row.type, projectId: row.project_id, ageMs: now - row.created_at };
     if (row.attempts > MAX_SWEEP_ATTEMPTS) {
       log('warn', 'event dead-lettered after final sweep attempt', fields);
       continue;
@@ -94,22 +101,28 @@ async function redeliverStuckEvents(env: Env, before: number): Promise<number> {
     if (row.attempts === MAX_SWEEP_ATTEMPTS) log('info', 'event final sweep attempt', fields);
     due.push(row.id);
   }
+  const counts = { redelivered: due.length, deadLettered: results.length - due.length, reenqueueFailed: 0 };
   if (env.EVENTS) {
     for (let i = 0; i < due.length; i += 100) {
       try {
         await env.EVENTS.sendBatch(due.slice(i, i + 100).map((id) => ({ body: { eventId: id } })));
       } catch (error) {
         // Events that were never handed to the queue get their attempt back, so a queue
-        // outage cannot dead-letter events that were never tried.
+        // outage cannot dead-letter events that were never tried. Log the root cause first:
+        // the refund can fail too during the same outage.
         const unsent = due.slice(i);
-        await env.DB.prepare('UPDATE events SET attempts = attempts - 1 WHERE id IN (SELECT value FROM json_each(?))')
-          .bind(JSON.stringify(unsent))
-          .run();
         log('error', 'event re-enqueue failed', { unsent: unsent.length, error: String(error) });
-        return i;
+        try {
+          await env.DB.prepare('UPDATE events SET attempts = attempts - 1 WHERE id IN (SELECT value FROM json_each(?))')
+            .bind(JSON.stringify(unsent))
+            .run();
+        } catch (refundError) {
+          log('error', 'event attempt refund failed', { unsent: unsent.length, eventIds: unsent.slice(0, 20), error: String(refundError) });
+        }
+        return { ...counts, redelivered: i, reenqueueFailed: unsent.length };
       }
     }
-    return due.length;
+    return counts;
   }
   for (const id of due) {
     try {
@@ -118,5 +131,5 @@ async function redeliverStuckEvents(env: Env, before: number): Promise<number> {
       log('error', 'event redelivery failed', { eventId: id, error: String(error) });
     }
   }
-  return due.length;
+  return counts;
 }

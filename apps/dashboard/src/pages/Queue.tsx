@@ -17,18 +17,37 @@ export function QueuePage({ projectId }: { projectId: string }) {
   const admin = api.project(projectId);
   const queue = useQuery({ queryKey: ['p', projectId, 'queue'], queryFn: () => admin.listQueue() });
 
+  // Approving or declining removes the card, and focus with it: move it to the card that
+  // took its place (or the new last one, or the empty state) so keyboard users keep going.
+  const list = useRef<HTMLDivElement>(null);
+  const empty = useRef<HTMLHeadingElement>(null);
+  const shown = useRef<string[]>([]);
+  const ids = queue.data?.items.map((post) => post.id).join(',') ?? '';
+  useEffect(() => {
+    const before = shown.current;
+    const now = ids ? ids.split(',') : [];
+    shown.current = now;
+    const removed = before.findIndex((id) => !now.includes(id));
+    const lost = !document.activeElement || document.activeElement === document.body;
+    if (removed < 0 || !lost) return;
+    if (now.length === 0) return empty.current?.focus();
+    list.current?.querySelectorAll<HTMLElement>('article > .row > a')[Math.min(removed, now.length - 1)]?.focus();
+  }, [ids]);
+
   if (queue.isPending) return <p className="muted">Loading…</p>;
   if (queue.isError) return <ErrorMessage error={queue.error} retry={() => queue.refetch()} />;
   if (queue.data.items.length === 0) {
     return (
       <div className="empty">
-        <h2>All caught up</h2>
+        <h2 ref={empty} tabIndex={-1}>
+          All caught up
+        </h2>
         <p className="muted">New submissions that need approval appear here.</p>
       </div>
     );
   }
   return (
-    <div className="stack">
+    <div className="stack" ref={list}>
       {queue.data.items.map((post) => (
         <QueueCard key={post.id} projectId={projectId} post={post} />
       ))}

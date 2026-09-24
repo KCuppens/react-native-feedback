@@ -4,7 +4,7 @@ import type { AppEnv } from '../env';
 import { adminActor, adminAuth, getViewer, requireFullAdmin } from '../auth';
 import { dispatchEvent, prepareEvent, toWebhookConfig, type PendingEvent } from '../events';
 import {
-  attachmentKeysForPost,
+  attachmentKeysQuery,
   getComment,
   getPost,
   listComments,
@@ -200,17 +200,31 @@ adminRoutes.patch('/posts/:id', async (c) => {
 adminRoutes.delete('/posts/:id', async (c) => {
   const post = await loadPost(c, c.req.param('id'));
   // Duplicates merged into this post go with it: their votes already live here, and
-  // ON DELETE SET NULL would otherwise put them back on the board. Both the file keys and
-  // the duplicates are resolved inside the batch, so a merge landing meanwhile is included.
-  const { results: merged } = await c.env.DB.prepare('SELECT id FROM posts WHERE merged_into_id = ?').bind(post.id).all<{ id: string }>();
-  const event = await adminEvent(c, 'post.deleted', post.id, { snapshot: publicPost(post), mergedIds: merged.map((m) => m.id) });
-  const [files] = await c.env.DB.batch([
-    attachmentKeysForPost(c.env, post.id),
+  // ON DELETE SET NULL would otherwise put them back on the board. The file keys, the
+  // duplicates and the event's mergedIds are all resolved inside the batch, so a merge
+  // landing meanwhile is included. The event is only recorded while the post still exists,
+  // so a concurrent duplicate delete notifies once.
+  const event = await adminEvent(
+    c,
+    'post.deleted',
+    post.id,
+    { snapshot: publicPost(post), mergedIds: [] },
+    {
+      sql: 'EXISTS (SELECT 1 FROM posts WHERE id = ?)',
+      params: [post.id],
+    },
+  );
+  const [files, , , , deleted] = await c.env.DB.batch([
+    attachmentKeysQuery(c.env, post.id),
+    event.statement,
+    c.env.DB.prepare(
+      `UPDATE events SET payload = json_set(payload, '$.mergedIds', json((SELECT json_group_array(id) FROM posts WHERE merged_into_id = ?)))
+       WHERE id = ?`,
+    ).bind(post.id, event.id),
     c.env.DB.prepare('DELETE FROM posts WHERE merged_into_id = ?').bind(post.id),
     c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(post.id),
-    event.statement,
   ]);
-  await dispatch(c, event);
+  if (deleted?.meta.changes) await dispatch(c, event);
   const keys = ((files?.results ?? []) as { r2_key: string }[]).map((r) => r.r2_key);
   deleteFilesInBackground(c, keys, `post ${post.id}`);
   return c.body(null, 204);
@@ -249,7 +263,7 @@ adminRoutes.post('/posts/:id/merge', async (c) => {
       ...claimedByUs.params,
     ),
   ]);
-  if (!claim?.meta.changes) fail(409, 'merge_conflict', 'One of these posts was merged in the meantime.');
+  if (!claim?.meta.changes) fail(409, 'merge_conflict', 'One of these posts was merged or deleted in the meantime.');
   await dispatch(c, event);
   return c.json(await reload(c, target.id));
 });

@@ -8,7 +8,7 @@ import {
   usePost,
   useVote,
 } from '@kobecuppens/feedback-core/react';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Avatar, Button, CategoryPill, Chip, ErrorState, Header, InlineError, Loading, PostStatusPill, VoteControl } from '../components';
 import { useUI } from '../ui';
 
@@ -195,12 +195,31 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
   const [confirmDelete, setConfirmDelete] = useState(false);
   const declineFocus = useSwapFocus(declining);
   const deleteFocus = useSwapFocus(confirmDelete);
+  const section = useRef<HTMLElement | null>(null);
+  // Approving swaps the Approve/Decline row for the status chips: keep focus in the panel.
+  const wasApproved = useRef(post.moderation === 'approved');
+  useEffect(() => {
+    const approved = post.moderation === 'approved';
+    // Only when focus was actually lost with the removed row, never stealing it from elsewhere.
+    const lost = !document.activeElement || document.activeElement === document.body;
+    if (approved && !wasApproved.current && lost && section.current) {
+      (section.current.querySelector<HTMLElement>('button') ?? section.current).focus();
+    }
+    wasApproved.current = approved;
+  }, [post.moderation]);
+  // Escape answers "no" to an open inline question instead of leaving the screen.
+  const cancelOnEscape = (cancel: () => void) => (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    cancel();
+  };
   const failed = [m.approve, m.decline, m.update, m.remove].find((mutation) => mutation.isError);
   return (
     <section
       {...slot('adminBar')}
       aria-label={strings.admin.queue}
       ref={(el) => {
+        section.current = el;
         declineFocus.fallback.current = el;
         deleteFocus.fallback.current = el;
       }}
@@ -214,7 +233,7 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
         </div>
       )}
       {declining && (
-        <>
+        <div style={{ display: 'contents' }} onKeyDown={cancelOnEscape(() => setDeclining(false))}>
           <input
             {...slot('input')}
             value={reason}
@@ -233,7 +252,7 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
             />
             <Button label={strings.admin.cancel} variant="secondary" onClick={() => setDeclining(false)} />
           </div>
-        </>
+        </div>
       )}
       {post.moderation === 'approved' && (
         <>
@@ -255,7 +274,7 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
           <p {...slot('errorText')} role="alert">
             {strings.admin.confirmDelete}
           </p>
-          <div {...slot('adminRow')} ref={deleteFocus.openRow}>
+          <div {...slot('adminRow')} ref={deleteFocus.openRow} onKeyDown={cancelOnEscape(() => setConfirmDelete(false))}>
             <Button
               label={strings.admin.delete}
               variant="danger"

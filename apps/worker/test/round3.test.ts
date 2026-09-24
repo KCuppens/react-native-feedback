@@ -88,4 +88,37 @@ describe('bulletproof round 3', () => {
       .all(0, 10) as { detail: string }[];
     expect(plan.map((p) => p.detail).join(' ')).toContain('events_unprocessed');
   });
+
+  it('records one post.deleted event for concurrent deletes, listing late merges', async () => {
+    h.setSettings({ autoApprove: true });
+    const target = await create('Target', 'alice');
+    const late = await create('Late duplicate', 'bob');
+    beforeBatch(() => h.db.prepare('UPDATE posts SET merged_into_id = ? WHERE id = ?').run(target.id, late.id));
+    const remove = () => h.request(`/v1/admin/posts/${target.id}`, { method: 'DELETE', headers: admin() });
+    const statuses = (await Promise.all([remove(), remove()])).map((r) => r.status);
+    expect(statuses.filter((s) => s === 204).length).toBeGreaterThanOrEqual(1);
+    const events = h.db.prepare("SELECT payload FROM events WHERE type = 'post.deleted'").all() as { payload: string }[];
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0]!.payload).mergedIds).toEqual([late.id]);
+  });
+
+  it('reports dead-lettered and failed re-enqueues in the maintenance summary', async () => {
+    const { runMaintenance } = await import('../src/maintenance');
+    const logs: string[] = [];
+    const info = console.log;
+    const error = console.error;
+    console.log = (line: string) => void logs.push(line);
+    console.error = (line: string) => void logs.push(line);
+    try {
+      h.db
+        .prepare("INSERT INTO events (id, project_id, type, payload, created_at, attempts) VALUES ('dead', ?, 'post.created', '{}', 0, 3)")
+        .run(h.project.id);
+      await runMaintenance({ ...h.env, EVENTS: undefined });
+    } finally {
+      console.log = info;
+      console.error = error;
+    }
+    const summary = logs.map((l) => JSON.parse(l)).find((l) => l.msg === 'maintenance');
+    expect(summary).toMatchObject({ redelivered: 0, deadLettered: 1, reenqueueFailed: 0 });
+  });
 });

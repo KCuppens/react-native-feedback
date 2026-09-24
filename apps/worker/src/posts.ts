@@ -333,9 +333,8 @@ export async function claimAttachments(
   ).bind(target.postId, target.commentId ?? null, ...ids, projectId, uploaderId);
 }
 
-/** R2 keys for everything attached to a post or its comments (for cleanup on delete). */
-/** Selects `r2_key` for every file on a post, its comments and the duplicates merged into it. */
-export function attachmentKeysForPost(env: Env, postId: string): D1PreparedStatement {
+/** A query (not yet run) selecting `r2_key` for every file on a post, its comments and the duplicates merged into it. */
+export function attachmentKeysQuery(env: Env, postId: string): D1PreparedStatement {
   return env.DB.prepare(
     `WITH ids AS (SELECT ?1 AS id UNION SELECT id FROM posts WHERE merged_into_id = ?1)
      SELECT r2_key FROM attachments
