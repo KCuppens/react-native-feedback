@@ -1,4 +1,5 @@
 export { FeedbackBoard, FeedbackProvider, type BoardTab, type FeedbackBoardProps, type FeedbackProviderProps } from './FeedbackBoard';
+export { FeedbackErrorBoundary } from './ErrorBoundary';
 export { FeedbackList, type FeedbackListProps } from './screens/FeedbackList';
 export { FeedbackDetail, type FeedbackDetailProps } from './screens/FeedbackDetail';
 export { FeedbackSubmit, type FeedbackSubmitProps } from './screens/FeedbackSubmit';

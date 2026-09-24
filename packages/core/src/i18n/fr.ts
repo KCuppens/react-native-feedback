@@ -1,6 +1,8 @@
 import type { FeedbackStrings } from './en';
 
 export const fr: FeedbackStrings = {
+  dateLocale: 'fr',
+  common: { loading: 'Chargement…' },
   tabs: { board: 'Suggestions', roadmap: 'Feuille de route', updates: 'Nouveautés', admin: 'Modération' },
   sort: { top: 'Populaires', new: 'Récentes', trending: 'Tendances' },
   status: {
@@ -34,6 +36,7 @@ export const fr: FeedbackStrings = {
     anonymous: 'Anonyme',
     official: 'Équipe',
     mergedInto: 'Fusionnée avec une autre suggestion',
+    openAttachment: (n) => `Ouvrir la pièce jointe ${n}`,
     back: 'Retour',
     attachments: 'Pièces jointes',
   },
@@ -58,6 +61,7 @@ export const fr: FeedbackStrings = {
     successPending: 'Merci ! Votre suggestion apparaîtra après validation.',
     successPublished: 'Merci ! Votre suggestion est en ligne.',
     cancel: 'Annuler',
+    done: 'Terminé',
     tooLong: (max) => `${max} caractères maximum.`,
     required: 'Obligatoire',
   },
@@ -88,6 +92,10 @@ export const fr: FeedbackStrings = {
     network: 'Vérifiez votre connexion et réessayez.',
     notAllowed: "Cette action n'est pas autorisée.",
     uploadTooLarge: 'Ce fichier est trop volumineux.',
+    rateLimited: 'Vous allez un peu vite. Réessayez dans un instant.',
+    signIn: 'Reconnectez-vous pour continuer.',
+    boardNotFound: "Ce tableau n'existe pas ou n'est pas public.",
+    boardLoadFailed: 'Impossible de charger ce tableau. Vérifiez votre connexion et réessayez.',
   },
   time: {
     justNow: "à l'instant",

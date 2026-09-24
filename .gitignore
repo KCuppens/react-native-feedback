@@ -7,3 +7,4 @@ apps/worker/assets
 coverage
 *.tsbuildinfo
 .testproof-cache
+.optimizer-cache/

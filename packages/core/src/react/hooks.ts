@@ -6,7 +6,7 @@ import {
   type InfiniteData,
   type QueryClient,
 } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import type {
   AdminPostPatch,
   BoardConfig,
@@ -16,6 +16,8 @@ import type {
   ListPostsParams,
   Page,
   Post,
+  RoadmapColumn,
+  Updates,
   UploadFile,
   VoteValue,
 } from '../types';
@@ -97,7 +99,7 @@ export function updateCachedPost(client: QueryClient, scope: string, postId: str
     );
   }
   client.setQueryData<Post>(feedbackKeys.post(scope, postId), (post) => (post ? update(post) : post));
-  client.setQueryData<{ status: string; posts: Post[] }[]>(feedbackKeys.roadmap(scope), (cols) =>
+  client.setQueryData<RoadmapColumn[]>(feedbackKeys.roadmap(scope), (cols) =>
     cols?.map((col) => ({ ...col, posts: col.posts.map((p) => (p.id === postId ? update(p) : p)) })),
   );
 }
@@ -105,9 +107,14 @@ export function updateCachedPost(client: QueryClient, scope: string, postId: str
 export function useVote() {
   const { adapter, scope, onEvent } = useFeedbackContext();
   const client = useQueryClient();
+  // Rapid taps send overlapping requests; only the newest one per post may touch the cache.
+  const latest = useRef(new Map<string, number>());
+  const isLatest = (postId: string, seq: number) => latest.current.get(postId) === seq;
   return useMutation({
     mutationFn: ({ post, value }: { post: Post; value: VoteValue }) => adapter.vote(post.id, value),
     onMutate: async ({ post, value }) => {
+      const seq = (latest.current.get(post.id) ?? 0) + 1;
+      latest.current.set(post.id, seq);
       // Only the queries updateCachedPost writes to, so unrelated fetches keep going.
       await Promise.all(
         [feedbackKeys.postsPrefix(scope), feedbackKeys.queue(scope), feedbackKeys.post(scope, post.id), feedbackKeys.roadmap(scope)].map(
@@ -115,14 +122,15 @@ export function useVote() {
         ),
       );
       updateCachedPost(client, scope, post.id, (p) => applyVote(p, value));
+      return { seq };
     },
     // `post` is the pre-vote snapshot the caller passed in.
-    onError: (error, { post }) => {
-      updateCachedPost(client, scope, post.id, () => post);
+    onError: (error, { post }, ctx) => {
+      if (ctx && isLatest(post.id, ctx.seq)) updateCachedPost(client, scope, post.id, () => post);
       onEvent({ type: 'error', error });
     },
-    onSuccess: (saved) => {
-      updateCachedPost(client, scope, saved.id, () => saved);
+    onSuccess: (saved, _vars, ctx) => {
+      if (isLatest(saved.id, ctx.seq)) updateCachedPost(client, scope, saved.id, () => saved);
       onEvent({ type: 'voted', post: saved });
     },
   });
@@ -209,7 +217,7 @@ export function useMarkUpdatesSeen() {
   return useMutation({
     mutationFn: () => adapter.markUpdatesSeen(),
     onSuccess: () =>
-      client.setQueryData<{ unseen: number }>(feedbackKeys.updates(scope), (data) =>
+      client.setQueryData<Updates>(feedbackKeys.updates(scope), (data) =>
         data ? { ...data, unseen: 0 } : data,
       ),
   });

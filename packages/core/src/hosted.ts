@@ -39,6 +39,16 @@ export interface HostedAdapterOptions {
   /** Where the anonymous device id is persisted. Defaults to memory. */
   storage?: KeyValueStorage;
   fetch?: typeof fetch;
+  /** Abort requests after this many ms (default 20s) so a stalled connection cannot spin forever. */
+  timeoutMs?: number;
+}
+
+/** AbortSignal.timeout is missing on older Hermes, so build it by hand (and clear it when done). */
+function timeoutSignal(ms: number): { signal?: AbortSignal; clear: () => void } {
+  if (typeof AbortController === 'undefined') return { clear: () => {} };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 
 const ANON_KEY = 'rnf:anon-id';
@@ -106,7 +116,13 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
       headers['Content-Type'] = 'application/json';
       payload = JSON.stringify(body);
     }
-    const res = await doFetch(`${baseUrl}${path}`, { method, headers, body: payload });
+    const timeout = timeoutSignal(options.timeoutMs ?? 20_000);
+    let res: Response;
+    try {
+      res = await doFetch(`${baseUrl}${path}`, { method, headers, body: payload, signal: timeout.signal });
+    } finally {
+      timeout.clear();
+    }
     if (res.status === 401 && !retried && options.getUserToken) {
       const err = await res.clone().json().catch(() => ({})) as { error?: string };
       if (err.error === 'user_token_expired') {

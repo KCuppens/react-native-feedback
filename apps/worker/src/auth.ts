@@ -1,4 +1,4 @@
-import { verifyFeedbackUser } from '@kobecuppens/feedback-core/server';
+import { hmacHex, verifyFeedbackUser } from '@kobecuppens/feedback-core/server';
 import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { createMiddleware } from 'hono/factory';
@@ -28,9 +28,14 @@ async function resolveIdentity(c: Context<AppEnv>, project: Project): Promise<Id
   if (token) {
     const result = await verifyFeedbackUser(token, project.signingSecret);
     if (!result.ok) {
+      // Reads fall back to a signed-out view so a stale token (e.g. a ?user= link) still shows the
+      // board; writes fail so clients with getUserToken refresh and retry.
+      if (result.reason === 'expired' && c.req.method === 'GET') return null;
       fail(401, result.reason === 'expired' ? 'user_token_expired' : 'invalid_user_token');
     }
     const { claims } = result;
+    // `anon:` and `system:` are internal external_id namespaces (anonymous devices, the Team author).
+    if (/^(anon|system):/.test(claims.id)) fail(401, 'invalid_user_token', 'User ids may not start with anon: or system:');
     return {
       externalId: claims.id,
       anonymous: false,
@@ -130,9 +135,13 @@ async function teamAuthor(env: Env, projectId: string): Promise<EndUserRow> {
 // ---------------------------------------------------------------------------
 // Admin: secret key, dashboard session, or in-app admin.
 
-/** Changes whenever ADMIN_PASSWORD does, so a new password ends every existing session. */
+/**
+ * Changes whenever ADMIN_PASSWORD does, so a new password ends every existing session.
+ * Keyed with SESSION_SECRET: the claim is readable in the cookie, and a plain hash would let
+ * anyone holding a cookie test password guesses offline.
+ */
 async function passwordVersion(env: Env): Promise<string> {
-  return (await sha256Hex(`session:${env.ADMIN_PASSWORD ?? ''}`)).slice(0, 16);
+  return (await hmacHex(sessionSecret(env), `pwv:${env.ADMIN_PASSWORD ?? ''}`)).slice(0, 16);
 }
 
 export async function createSessionCookieValue(env: Env): Promise<string> {
@@ -143,9 +152,13 @@ export async function createSessionCookieValue(env: Env): Promise<string> {
     .sign(sessionKey(env));
 }
 
-function sessionKey(env: Env): Uint8Array {
+function sessionSecret(env: Env): string {
   if (!env.SESSION_SECRET || env.SESSION_SECRET.length < 32) fail(503, 'dashboard_not_configured');
-  return new TextEncoder().encode(env.SESSION_SECRET);
+  return env.SESSION_SECRET;
+}
+
+function sessionKey(env: Env): Uint8Array {
+  return new TextEncoder().encode(sessionSecret(env));
 }
 
 async function hasDashboardSession(c: Context<AppEnv>): Promise<boolean> {

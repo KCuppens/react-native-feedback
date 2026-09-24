@@ -6,6 +6,7 @@ export {
   type FeedbackBoardProps,
   type FeedbackProviderProps,
 } from './FeedbackBoard';
+export { FeedbackErrorBoundary } from './ErrorBoundary';
 export {
   FeedbackAdminQueue,
   FeedbackDetail,

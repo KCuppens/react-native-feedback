@@ -10,7 +10,7 @@ import {
 } from '@kobecuppens/feedback-core/react';
 import { useEffect, useMemo, useState } from 'react';
 import { Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, TextInput, View, type ImageStyle } from 'react-native';
-import { Avatar, Button, CategoryPill, Chip, ErrorState, Header, Loading, PostStatusPill, VoteControl } from '../components';
+import { Avatar, Button, CategoryPill, Chip, ErrorState, Header, InlineError, Loading, PostStatusPill, VoteControl } from '../components';
 import { useUI } from '../ui';
 
 export interface FeedbackDetailProps {
@@ -90,11 +90,12 @@ export function FeedbackDetail({ postId, initialPost, onBack, onDeleted }: Feedb
         {post.body ? <Text style={styles.detailBody}>{post.body}</Text> : null}
         {post.attachments.length > 0 && (
           <View style={styles.attachmentRow} accessibilityLabel={strings.post.attachments}>
-            {post.attachments.map((a) => (
+            {post.attachments.map((a, i) => (
               <Pressable
                 key={a.id}
                 onPress={() => Linking.openURL(a.url).catch((error: unknown) => onEvent({ type: 'error', error }))}
                 accessibilityRole="imagebutton"
+                accessibilityLabel={strings.post.openAttachment(i + 1)}
               >
                 <Image source={{ uri: a.url }} style={styles.attachmentImage as ImageStyle} resizeMode="cover" accessibilityIgnoresInvertColors />
               </Pressable>
@@ -169,7 +170,10 @@ function Composer({ postId }: { postId: string }) {
         multiline
         accessibilityLabel={strings.comments.placeholder}
       />
-      <Button label={strings.comments.send} onPress={send} disabled={!body.trim()} loading={create.isPending} />
+      <View style={{ gap: 4, maxWidth: 160 }}>
+        <Button label={strings.comments.send} onPress={send} disabled={!body.trim()} loading={create.isPending} />
+        <InlineError error={create.error} />
+      </View>
     </View>
   );
 }
@@ -180,9 +184,11 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const failed = [m.approve, m.decline, m.update, m.remove].find((mutation) => mutation.isError);
 
   return (
     <View style={styles.adminBar}>
+      <InlineError error={failed?.error} />
       {post.moderation !== 'approved' && (
         <View style={styles.adminRow}>
           <Button label={strings.admin.approve} onPress={() => m.approve.mutate(post.id)} loading={m.approve.isPending} />
@@ -199,6 +205,7 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
             placeholder={strings.admin.declineReasonPlaceholder}
             placeholderTextColor={theme.colors.textMuted}
             style={styles.input}
+            accessibilityLabel={strings.admin.declineReasonPlaceholder}
           />
           <View style={styles.adminRow}>
             <Button

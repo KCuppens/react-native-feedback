@@ -6,15 +6,31 @@ import { href } from '../router';
 import { STATUS_LABELS } from '../ui';
 
 const COLUMNS: PostStatus[] = ['open', 'under_review', 'planned', 'in_progress', 'done'];
+const PER_COLUMN = 100;
+
+interface Kanban {
+  items: Post[];
+  /** Columns with more posts than were loaded. */
+  truncated: PostStatus[];
+}
 
 /** Kanban of approved posts; drag a card (or use its menu) to change status. */
 export function RoadmapPage({ projectId }: { projectId: string }) {
   const admin = api.project(projectId);
   const client = useQueryClient();
   const key = ['p', projectId, 'kanban'];
+  // One query per column, so a busy "Open" column cannot push the others off the board.
   const posts = useQuery({
     queryKey: key,
-    queryFn: async () => (await admin.listPosts({ moderation: 'approved', status: COLUMNS, sort: 'top', limit: 100 })).items,
+    queryFn: async (): Promise<Kanban> => {
+      const pages = await Promise.all(
+        COLUMNS.map((status) => admin.listPosts({ moderation: 'approved', status: [status], sort: 'top', limit: PER_COLUMN })),
+      );
+      return {
+        items: pages.flatMap((page) => page.items),
+        truncated: COLUMNS.filter((_, i) => pages[i]!.nextCursor !== null),
+      };
+    },
   });
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<PostStatus | null>(null);
@@ -23,8 +39,10 @@ export function RoadmapPage({ projectId }: { projectId: string }) {
     mutationFn: ({ id, status }: { id: string; status: PostStatus }) => admin.updatePost(id, { status }),
     onMutate: async ({ id, status }) => {
       await client.cancelQueries({ queryKey: key });
-      const previous = client.getQueryData<Post[]>(key);
-      client.setQueryData<Post[]>(key, (list) => list?.map((p) => (p.id === id ? { ...p, status } : p)));
+      const previous = client.getQueryData<Kanban>(key);
+      client.setQueryData<Kanban>(key, (board) =>
+        board ? { ...board, items: board.items.map((p) => (p.id === id ? { ...p, status } : p)) } : board,
+      );
       return { previous };
     },
     onError: (_e, _v, ctx) => client.setQueryData(key, ctx?.previous),
@@ -39,7 +57,7 @@ export function RoadmapPage({ projectId }: { projectId: string }) {
       {move.isError && <p className="error">{errorText(move.error)}</p>}
       <div className="kanban">
         {COLUMNS.map((status) => {
-          const items = posts.data.filter((p) => p.status === status);
+          const items = posts.data.items.filter((p) => p.status === status);
           return (
             <section
               key={status}
@@ -54,12 +72,15 @@ export function RoadmapPage({ projectId }: { projectId: string }) {
                 e.preventDefault();
                 setOver(null);
                 const id = e.dataTransfer.getData('text/plain');
-                if (id && posts.data.find((p) => p.id === id)?.status !== status) move.mutate({ id, status });
+                if (id && posts.data.items.find((p) => p.id === id)?.status !== status) move.mutate({ id, status });
               }}
             >
               <h3>
                 <span className={`badge status-${status}`}>{STATUS_LABELS[status]}</span> <span className="muted">{items.length}</span>
               </h3>
+              {posts.data.truncated.includes(status) && (
+                <p className="muted column-note">Showing the top {PER_COLUMN}. Use All posts to see the rest.</p>
+              )}
               {items.map((post) => (
                 <article
                   key={post.id}

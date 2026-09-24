@@ -35,6 +35,7 @@ import {
   EmptyState,
   ErrorState,
   Header,
+  InlineError,
   Loading,
   PostCard,
   PostStatusPill,
@@ -75,6 +76,9 @@ export function FeedbackList({ onOpenPost, onNewPost, initialSort = 'top', hideT
   const vote = useVote();
   const posts = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
   const sentinel = useRef<HTMLDivElement>(null);
+  // Cards are memoized on data, so give them callbacks that always reach the latest handlers.
+  const handlers = useRef({ onOpenPost, mutate: vote.mutate });
+  handlers.current = { onOpenPost, mutate: vote.mutate };
 
   // Infinite scroll where IntersectionObserver exists; a button otherwise.
   useEffect(() => {
@@ -126,8 +130,8 @@ export function FeedbackList({ onOpenPost, onNewPost, initialSort = 'top', hideT
             <li key={post.id}>
               <PostCard
                 post={post}
-                onOpen={() => onOpenPost(post)}
-                onVote={(v) => vote.mutate({ post, value: nextVote(post.myVote, v) })}
+                onOpen={() => handlers.current.onOpenPost(post)}
+                onVote={(v) => handlers.current.mutate({ post, value: nextVote(post.myVote, v) })}
                 canVote={!!features?.vote}
                 canDownvote={!!features?.downvote}
               />
@@ -216,9 +220,9 @@ export function FeedbackDetail({ postId, initialPost, onBack, onDeleted }: Feedb
         </div>
         {post.body && <p {...slot('detailBody')}>{post.body}</p>}
         {post.attachments.length > 0 && (
-          <div {...slot('attachmentRow')} aria-label={strings.post.attachments}>
-            {post.attachments.map((a) => (
-              <a key={a.id} href={a.url} target="_blank" rel="noreferrer noopener">
+          <div {...slot('attachmentRow')} role="group" aria-label={strings.post.attachments}>
+            {post.attachments.map((a, i) => (
+              <a key={a.id} href={a.url} target="_blank" rel="noreferrer noopener" aria-label={strings.post.openAttachment(i + 1)}>
                 <img {...slot('attachmentImage')} src={a.url} alt="" loading="lazy" />
               </a>
             ))}
@@ -295,6 +299,7 @@ function Composer({ postId }: { postId: string }) {
         rows={1}
       />
       <Button type="submit" label={strings.comments.send} disabled={!body.trim()} loading={create.isPending} />
+      <InlineError error={create.error} />
     </form>
   );
 }
@@ -305,8 +310,10 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const failed = [m.approve, m.decline, m.update, m.remove].find((mutation) => mutation.isError);
   return (
     <section {...slot('adminBar')} aria-label={strings.admin.queue}>
+      <InlineError error={failed?.error} />
       {post.moderation !== 'approved' && !declining && (
         <div {...slot('adminRow')}>
           <Button label={strings.admin.approve} onClick={() => m.approve.mutate(post.id)} loading={m.approve.isPending} />
@@ -332,7 +339,12 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
           <span {...slot('inputLabel')}>{strings.admin.changeStatus}</span>
           <div {...slot('adminRow')}>
             {POST_STATUSES.map((s) => (
-              <Chip key={s} label={strings.status[s]} active={post.status === s} onClick={() => m.update.mutate({ id: post.id, patch: { status: s } })} />
+              <Chip
+                key={s}
+                label={strings.status[s]}
+                active={post.status === s}
+                onClick={() => !m.update.isPending && m.update.mutate({ id: post.id, patch: { status: s } })}
+              />
             ))}
           </div>
         </>
@@ -373,36 +385,29 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
   const [body, setBody] = useState('');
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<{ attachment: Attachment; preview: string }[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [created, setCreated] = useState<Post | null>(null);
   const limits = config?.limits;
+  const titleMin = limits?.titleMin ?? 3;
 
   // Free preview blobs on unmount (removals free their own).
   const previews = useRef<string[]>([]);
   previews.current = attachments.map((a) => a.preview);
   useEffect(() => () => previews.current.forEach((url) => URL.revokeObjectURL(url)), []);
 
-  const errorMessage = (e: unknown) => {
-    if (e instanceof FeedbackApiError) {
-      if (e.status === 413) return strings.errors.uploadTooLarge;
-      if (e.status === 403) return strings.errors.notAllowed;
-      return e.message || strings.errors.generic;
-    }
-    return e instanceof TypeError ? strings.errors.network : strings.errors.generic;
-  };
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
     setError(null);
     if (limits && file.size > limits.attachmentMaxBytes) {
-      setError(strings.errors.uploadTooLarge);
+      setError(new FeedbackApiError(413, 'file_too_large'));
       return;
     }
     try {
       const attachment = await upload.mutateAsync(file);
       setAttachments((list) => [...list, { attachment, preview: URL.createObjectURL(file) }]);
     } catch (e) {
-      setError(errorMessage(e));
+      setError(e);
     } finally {
       if (fileInput.current) fileInput.current.value = '';
     }
@@ -413,7 +418,7 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
     setError(null);
     create.mutate(
       { title: title.trim(), body: body.trim(), categoryId, attachmentIds: attachments.map((a) => a.attachment.id) },
-      { onSuccess: setCreated, onError: (err) => setError(errorMessage(err)) },
+      { onSuccess: setCreated, onError: setError },
     );
   };
 
@@ -423,7 +428,7 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
         <Header title={strings.submit.title} onBack={() => onDone?.(created)} />
         <div {...slot('empty')} role="status">
           <p style={{ margin: 0 }}>{created.moderation === 'approved' ? strings.submit.successPublished : strings.submit.successPending}</p>
-          <Button label="OK" onClick={() => onDone?.(created)} />
+          <Button label={strings.submit.done} onClick={() => onDone?.(created)} />
         </div>
       </>
     );
@@ -444,7 +449,7 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           maxLength={limits?.titleMax ?? 120}
-          minLength={3}
+          minLength={titleMin}
           required
           placeholder={strings.submit.titlePlaceholder}
           autoFocus
@@ -501,12 +506,8 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
             <Button label={strings.submit.attach} variant="secondary" loading={upload.isPending} onClick={() => fileInput.current?.click()} />
           </>
         )}
-        {error && (
-          <p {...slot('errorText')} role="alert">
-            {error}
-          </p>
-        )}
-        <Button type="submit" label={strings.submit.submit} disabled={title.trim().length < 3 || upload.isPending} loading={create.isPending} />
+        <InlineError error={error} />
+        <Button type="submit" label={strings.submit.submit} disabled={title.trim().length < titleMin || upload.isPending} loading={create.isPending} />
         {onCancel && <Button label={strings.submit.cancel} variant="secondary" onClick={onCancel} />}
       </form>
     </>
@@ -535,7 +536,10 @@ export function FeedbackRoadmap({ onOpenPost }: { onOpenPost: (post: Post) => vo
               <button key={post.id} type="button" {...slot('roadmapCard')} onClick={() => onOpenPost(post)}>
                 <span {...slot('roadmapCardTitle')}>{post.title}</span>
                 <span {...slot('cardMeta')}>
-                  <span {...slot('cardMetaText')}>▲ {post.score}</span>
+                  <span {...slot('cardMetaText')}>
+                    <span aria-hidden="true">▲ {post.score}</span>
+                    <span className="fb-srOnly">{strings.post.votes(post.score)}</span>
+                  </span>
                   {post.category && <CategoryPill name={post.category.name} color={post.category.color} />}
                 </span>
               </button>
@@ -604,6 +608,11 @@ export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) =>
   const m = useModeration();
   const [declining, setDeclining] = useState<string | null>(null);
   const [reason, setReason] = useState('');
+  const startDecline = (id: string | null) => {
+    setDeclining(id);
+    setReason('');
+  };
+  const failed = [m.approve, m.decline].find((mutation) => mutation.isError);
   const posts = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
 
   if (query.isPending) return <Loading />;
@@ -611,7 +620,9 @@ export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) =>
   if (posts.length === 0) return <EmptyState message={strings.admin.queueEmpty} />;
 
   return (
-    <ul {...slot('list')}>
+    <>
+      <InlineError error={failed?.error} />
+      <ul {...slot('list')}>
       {posts.map((post) => (
         <li key={post.id} className={slot('card').className} style={{ flexDirection: 'column', ...slot('card').style }}>
           <button type="button" {...slot('cardBody')} onClick={() => onOpenPost(post)}>
@@ -627,19 +638,20 @@ export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) =>
                   label={strings.admin.confirmDecline}
                   variant="danger"
                   loading={m.decline.isPending}
-                  onClick={() => m.decline.mutate({ id: post.id, reason: reason.trim() || null }, { onSuccess: () => { setDeclining(null); setReason(''); } })}
+                  onClick={() => m.decline.mutate({ id: post.id, reason: reason.trim() || null }, { onSuccess: () => startDecline(null) })}
                 />
-                <Button label={strings.admin.cancel} variant="secondary" onClick={() => setDeclining(null)} />
+                <Button label={strings.admin.cancel} variant="secondary" onClick={() => startDecline(null)} />
               </div>
             </>
           ) : (
             <div {...slot('adminRow')}>
               <Button label={strings.admin.approve} onClick={() => m.approve.mutate(post.id)} loading={m.approve.isPending && m.approve.variables === post.id} />
-              <Button label={strings.admin.decline} variant="secondary" onClick={() => setDeclining(post.id)} />
+              <Button label={strings.admin.decline} variant="secondary" onClick={() => startDecline(post.id)} />
             </div>
           )}
         </li>
       ))}
     </ul>
+    </>
   );
 }

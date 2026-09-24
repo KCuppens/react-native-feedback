@@ -1,4 +1,5 @@
-import { formatRelativeTime, type Post } from '@kobecuppens/feedback-core';
+import { describeError, formatRelativeTime, type Post } from '@kobecuppens/feedback-core';
+import { memo } from 'react';
 import {
   useUI,
   type AvatarProps,
@@ -26,14 +27,25 @@ export function Button(props: ButtonProps) {
       disabled={props.disabled || props.loading}
       aria-busy={props.loading || undefined}
     >
-      {props.loading ? <Spinner /> : props.label}
+      {props.loading ? <Spinner label={props.label} /> : props.label}
     </button>
   );
 }
 
-function Spinner() {
+function Spinner({ label }: { label: string }) {
+  const { slot } = useUI();
+  return <span {...slot('spinner')} role="status" aria-label={label} />;
+}
+
+/** A failed action's localized message, announced to screen readers. */
+export function InlineError({ error }: { error: unknown }) {
   const { slot, strings } = useUI();
-  return <span {...slot('spinner')} role="status" aria-label={strings.submit.submitting} />;
+  if (!error) return null;
+  return (
+    <p {...slot('errorText')} role="alert">
+      {describeError(strings, error)}
+    </p>
+  );
 }
 
 export function StatusPill(props: StatusPillProps) {
@@ -113,11 +125,11 @@ export function EmptyState(props: EmptyStateProps) {
 }
 
 export function Loading() {
-  const { components, slot } = useUI();
+  const { components, slot, strings } = useUI();
   if (components.Loading) return <components.Loading />;
   return (
     <div {...slot('loading')}>
-      <Spinner />
+      <Spinner label={strings.common.loading} />
     </div>
   );
 }
@@ -143,7 +155,10 @@ export function Header(props: HeaderProps) {
           ‹ {strings.post.back}
         </button>
       )}
-      <h2 {...slot('headerTitle')}>{props.title}</h2>
+      {/* Focus target for the board's navigation (see BoardNavigator). */}
+      <h2 {...slot('headerTitle')} tabIndex={-1} data-fb-screen-title>
+        {props.title}
+      </h2>
       {props.right}
     </div>
   );
@@ -165,29 +180,41 @@ export function PostStatusPill({ post }: { post: Post }) {
   return <StatusPill status={post.status} label={strings.status[post.status]} />;
 }
 
-export function PostCard(props: PostCardProps) {
-  const { components, slot, strings } = useUI();
-  if (components.PostCard) return <components.PostCard {...props} />;
-  const { post } = props;
-  return (
-    <article {...slot('card', post.moderation !== 'approved' && 'cardPending')}>
-      <VoteControl
-        post={post}
-        onVote={props.onVote}
-        disabled={!props.canVote || post.moderation !== 'approved'}
-        showDownvote={props.canDownvote}
-      />
-      <button type="button" {...slot('cardBody')} onClick={props.onOpen} aria-label={post.title}>
-        <h3 {...slot('cardTitle')}>{post.title}</h3>
-        {post.body && <p {...slot('cardExcerpt')}>{post.body}</p>}
-        <span {...slot('cardMeta')}>
-          <PostStatusPill post={post} />
-          {post.category && <CategoryPill name={post.category.name} color={post.category.color} />}
-          <span {...slot('cardMetaText')}>
-            {strings.post.comments(post.commentCount)} · {formatRelativeTime(strings, post.createdAt)}
+/**
+ * The title is the card's link (a real heading containing a button, so heading
+ * navigation works); CSS stretches its hit area over the whole card. Memoized on data:
+ * lists pass callbacks that delegate to the latest handlers.
+ */
+export const PostCard = memo(
+  function PostCard(props: PostCardProps) {
+    const { components, slot, strings } = useUI();
+    if (components.PostCard) return <components.PostCard {...props} />;
+    const { post } = props;
+    return (
+      <article {...slot('card', post.moderation !== 'approved' && 'cardPending')}>
+        <VoteControl
+          post={post}
+          onVote={props.onVote}
+          disabled={!props.canVote || post.moderation !== 'approved'}
+          showDownvote={props.canDownvote}
+        />
+        <div {...slot('cardBody')}>
+          <h3 {...slot('cardTitle')}>
+            <button type="button" {...slot('cardLink')} onClick={props.onOpen}>
+              {post.title}
+            </button>
+          </h3>
+          {post.body && <p {...slot('cardExcerpt')}>{post.body}</p>}
+          <span {...slot('cardMeta')}>
+            <PostStatusPill post={post} />
+            {post.category && <CategoryPill name={post.category.name} color={post.category.color} />}
+            <span {...slot('cardMetaText')}>
+              {strings.post.comments(post.commentCount)} · {formatRelativeTime(strings, post.createdAt)}
+            </span>
           </span>
-        </span>
-      </button>
-    </article>
-  );
-}
+        </div>
+      </article>
+    );
+  },
+  (a, b) => a.post === b.post && a.canVote === b.canVote && a.canDownvote === b.canDownvote,
+);

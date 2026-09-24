@@ -86,10 +86,16 @@ export default function App() {
         components={components}
         onEvent={(e) => e.type === 'error' && console.warn('feedback error', e.error)}
         headerAccessory={
-          <View style={{ flexDirection: 'row', gap: 8, padding: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 8, padding: 12, backgroundColor: '#FFFFFF' }}>
             {Object.keys(brands).map((b) => (
-              <Pressable key={b} onPress={() => setBrand(b)} style={{ padding: 6, opacity: b === brand ? 1 : 0.5 }}>
-                <Text>{b}</Text>
+              <Pressable
+                key={b}
+                onPress={() => setBrand(b)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: b === brand }}
+                style={{ padding: 6, opacity: b === brand ? 1 : 0.5 }}
+              >
+                <Text style={{ color: '#141418' }}>{b}</Text>
               </Pressable>
             ))}
           </View>

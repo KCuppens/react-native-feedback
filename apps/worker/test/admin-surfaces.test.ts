@@ -255,7 +255,9 @@ describe('worker entry', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await worker.fetch(new Request('https://feedback.test/v1/config', { headers: { 'X-Feedback-Key': 'pk_x' } }), broken, {} as ExecutionContext);
     expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ error: 'internal_error', message: 'Something went wrong' });
+    const body = (await res.json()) as { requestId: string };
+    expect(body).toMatchObject({ error: 'internal_error', message: 'Something went wrong' });
+    expect(body.requestId).toBe(res.headers.get('X-Request-Id'));
   });
 
   it('wires the queue consumer and the hourly cron', async () => {

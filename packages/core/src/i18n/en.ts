@@ -1,6 +1,9 @@
 import type { PostStatus, PostSort } from '../types';
 
 export interface FeedbackStrings {
+  /** BCP-47 tag used to format dates, e.g. 'nl'. */
+  dateLocale: string;
+  common: { loading: string };
   tabs: { board: string; roadmap: string; updates: string; admin: string };
   sort: Record<PostSort, string>;
   status: Record<PostStatus, string>;
@@ -23,6 +26,7 @@ export interface FeedbackStrings {
     anonymous: string;
     official: string;
     mergedInto: string;
+    openAttachment: (n: number) => string;
     back: string;
     attachments: string;
   };
@@ -47,6 +51,7 @@ export interface FeedbackStrings {
     successPending: string;
     successPublished: string;
     cancel: string;
+    done: string;
     tooLong: (max: number) => string;
     required: string;
   };
@@ -77,6 +82,10 @@ export interface FeedbackStrings {
     network: string;
     notAllowed: string;
     uploadTooLarge: string;
+    rateLimited: string;
+    signIn: string;
+    boardNotFound: string;
+    boardLoadFailed: string;
   };
   time: {
     justNow: string;
@@ -87,6 +96,8 @@ export interface FeedbackStrings {
 }
 
 export const en: FeedbackStrings = {
+  dateLocale: 'en',
+  common: { loading: 'Loading…' },
   tabs: { board: 'Feedback', roadmap: 'Roadmap', updates: 'Updates', admin: 'Review' },
   sort: { top: 'Top', new: 'New', trending: 'Trending' },
   status: {
@@ -120,6 +131,7 @@ export const en: FeedbackStrings = {
     anonymous: 'Anonymous',
     official: 'Team',
     mergedInto: 'Merged into another post',
+    openAttachment: (n) => `Open attachment ${n}`,
     back: 'Back',
     attachments: 'Attachments',
   },
@@ -144,6 +156,7 @@ export const en: FeedbackStrings = {
     successPending: 'Thanks! Your post will appear once it has been reviewed.',
     successPublished: 'Thanks! Your post is live.',
     cancel: 'Cancel',
+    done: 'Done',
     tooLong: (max) => `Keep it under ${max} characters.`,
     required: 'Required',
   },
@@ -174,6 +187,10 @@ export const en: FeedbackStrings = {
     network: 'Check your connection and try again.',
     notAllowed: "You can't do that here.",
     uploadTooLarge: 'That file is too large.',
+    rateLimited: "You're going a bit fast. Try again in a little while.",
+    signIn: 'Please sign in again to continue.',
+    boardNotFound: "This board doesn't exist or isn't public.",
+    boardLoadFailed: "Couldn't load this board. Check your connection and try again.",
   },
   time: {
     justNow: 'just now',

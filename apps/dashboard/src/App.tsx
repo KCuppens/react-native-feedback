@@ -82,9 +82,19 @@ function Shell() {
         <div className="brand">Feedback</div>
         <nav aria-label="Projects">
           {list.map((p) => (
-            <a key={p.id} href={href(p.id)} className={p.id === route.projectId ? 'active' : undefined}>
+            <a
+              key={p.id}
+              href={href(p.id)}
+              className={p.id === route.projectId ? 'active' : undefined}
+              aria-current={p.id === route.projectId ? 'page' : undefined}
+            >
               <span>{p.name}</span>
-              {p.pendingCount > 0 && <span className="count">{p.pendingCount}</span>}
+              {p.pendingCount > 0 && (
+                <span className="count">
+                  {p.pendingCount}
+                  <span className="sr-only"> pending</span>
+                </span>
+              )}
             </a>
           ))}
         </nav>
@@ -113,14 +123,19 @@ function Shell() {
               <h1>{project.name}</h1>
               <nav className="tabs" aria-label="Sections">
                 {TABS.map(([id, label]) => (
-                  <a key={id} href={href(project.id, id)} className={route.tab === id ? 'active' : undefined}>
+                  <a
+                    key={id}
+                    href={href(project.id, id)}
+                    className={route.tab === id ? 'active' : undefined}
+                    aria-current={route.tab === id ? 'page' : undefined}
+                  >
                     {label}
                     {id === 'queue' && project.pendingCount > 0 ? ` (${project.pendingCount})` : ''}
                   </a>
                 ))}
               </nav>
             </header>
-            <ProjectPage project={project} />
+            <ProjectPage key={project.id} project={project} />
           </>
         )}
       </main>

@@ -20,7 +20,7 @@ const slug = (opt('slug') ?? name)
   .replace(/[̀-ͯ]/g, '')
   .replace(/[^a-z0-9]+/g, '-')
   .replace(/^-+|-+$/g, '')
-  .slice(0, 48);
+  .slice(0, 48) || 'project';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const token = (n) => {
@@ -30,7 +30,19 @@ const token = (n) => {
 };
 const keys = { publicKey: `pk_${token(24)}`, signingSecret: `fbs_${token(40)}`, secretKey: `sk_${token(40)}` };
 const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
-const settings = JSON.stringify({});
+// Same defaults the dashboard writes (packages/core DEFAULT_PROJECT_SETTINGS).
+const settings = JSON.stringify({
+  autoApprove: false,
+  inAppAdmin: false,
+  publicBoard: false,
+  allowAnonymous: true,
+  allowAttachments: true,
+  allowComments: true,
+  allowDownvotes: true,
+  roadmapEnabled: true,
+  notifySubmitter: true,
+  adminEmail: null,
+});
 const sql = `INSERT INTO projects (id, slug, name, public_key, signing_secret, secret_key_hash, settings, created_at) VALUES (${[
   q(randomUUID()),
   q(slug),

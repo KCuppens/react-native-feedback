@@ -37,7 +37,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit -p .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@kobecuppens/feedback-core": "0.1.0"

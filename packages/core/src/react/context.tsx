@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { FeedbackAdapter } from '../adapter';
 import { createHostedAdapter, type KeyValueStorage } from '../hosted';
 import { resolveStrings, type FeedbackStrings, type FeedbackStringsInput } from '../i18n';
 import { resolveTheme, type FeedbackTheme, type ThemeProp } from '../theme';
-import type { ClientFeatures, Post } from '../types';
+import { FeedbackApiError, type ClientFeatures, type Post } from '../types';
 
 export type FeedbackUIEvent =
   | { type: 'post_opened'; post: Post }
@@ -65,16 +65,23 @@ export function FeedbackProvider(props: FeedbackProviderProps) {
     [customAdapter, projectKey, baseUrl, userToken, storage],
   );
 
+  // Inline `theme={{…}}` objects are common: key on content (themes are plain data) so a
+  // host re-render does not rebuild every style in the board.
+  const themeKey = JSON.stringify(props.theme ?? null);
   const theme = useMemo(
     () => resolveTheme(props.theme, props.colorScheme ?? 'light'),
-    [props.theme, props.colorScheme],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [themeKey, props.colorScheme],
   );
   const strings = useMemo(() => resolveStrings(props.locale, props.strings), [props.locale, props.strings]);
 
   const featuresKey = JSON.stringify(props.features ?? {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const clientFeatures = useMemo<ClientFeatures>(() => props.features ?? {}, [featuresKey]);
-  const onEventProp = props.onEvent;
+  // Stable callback around the latest onEvent, so inline handlers do not re-render the board.
+  const onEventRef = useRef(props.onEvent ?? noop);
+  onEventRef.current = props.onEvent ?? noop;
+  const onEvent = useCallback((event: FeedbackUIEvent) => onEventRef.current(event), []);
   const value = useMemo<FeedbackContextValue>(
     () => ({
       adapter,
@@ -82,15 +89,22 @@ export function FeedbackProvider(props: FeedbackProviderProps) {
       theme,
       strings,
       clientFeatures,
-      onEvent: onEventProp ?? noop,
+      onEvent,
     }),
-    [adapter, projectKey, userToken, theme, strings, clientFeatures, onEventProp],
+    [adapter, projectKey, userToken, theme, strings, clientFeatures, onEvent],
   );
 
   const [ownClient] = useState(
     () =>
       new QueryClient({
-        defaultOptions: { queries: { staleTime: 30_000, retry: 1, refetchOnWindowFocus: true } },
+        defaultOptions: {
+          queries: {
+            staleTime: 30_000,
+            // 4xx answers (bad key, not found, rate limited) will not change on a retry.
+            retry: (count, error) => count < 1 && !(error instanceof FeedbackApiError && error.status < 500),
+            refetchOnWindowFocus: true,
+          },
+        },
       }),
   );
 

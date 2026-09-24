@@ -1,6 +1,6 @@
 import { nextVote, type Post, type PostSort } from '@kobecuppens/feedback-core';
 import { useConfig, useFeatures, usePosts, useVote } from '@kobecuppens/feedback-core/react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { Chip, EmptyState, ErrorState, Loading, PostCard } from '../components';
 import { useUI } from '../ui';
@@ -38,7 +38,23 @@ export function FeedbackList({ onOpenPost, onNewPost, initialSort = 'top', hideT
   const vote = useVote();
   const posts = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
 
-  const onVote = (post: Post, pressed: 1 | -1) => vote.mutate({ post, value: nextVote(post.myVote, pressed) });
+  // Cards are memoized on data, so hand them callbacks that always reach the latest handlers.
+  const handlers = useRef({ onOpenPost, mutate: vote.mutate });
+  handlers.current = { onOpenPost, mutate: vote.mutate };
+  const canVote = !!features?.vote;
+  const canDownvote = !!features?.downvote;
+  const renderItem = useCallback(
+    ({ item }: { item: Post }) => (
+      <PostCard
+        post={item}
+        onPress={() => handlers.current.onOpenPost(item)}
+        onVote={(pressed) => handlers.current.mutate({ post: item, value: nextVote(item.myVote, pressed) })}
+        canVote={canVote}
+        canDownvote={canDownvote}
+      />
+    ),
+    [canVote, canDownvote],
+  );
 
   const toolbar = hideToolbar ? null : (
     <View style={styles.toolbar}>
@@ -77,15 +93,7 @@ export function FeedbackList({ onOpenPost, onNewPost, initialSort = 'top', hideT
         keyExtractor={(p) => p.id}
         ListHeaderComponent={toolbar}
         ListHeaderComponentStyle={{ marginHorizontal: -theme.spacing.lg, marginTop: -theme.spacing.lg }}
-        renderItem={({ item }) => (
-          <PostCard
-            post={item}
-            onPress={() => onOpenPost(item)}
-            onVote={(v) => onVote(item, v)}
-            canVote={!!features?.vote}
-            canDownvote={!!features?.downvote}
-          />
-        )}
+        renderItem={renderItem}
         ListEmptyComponent={
           query.isPending ? (
             <Loading />

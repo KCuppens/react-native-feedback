@@ -1,8 +1,8 @@
-import { FeedbackApiError, type Attachment, type Post } from '@kobecuppens/feedback-core';
+import type { Attachment, Post } from '@kobecuppens/feedback-core';
 import { useConfig, useCreatePost, useFeatures, useUpload } from '@kobecuppens/feedback-core/react';
 import { useState } from 'react';
 import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View, type ImageStyle } from 'react-native';
-import { Button, Chip, Header } from '../components';
+import { Button, Chip, Header, InlineError } from '../components';
 import { defaultPickImage } from '../platform';
 import { useUI } from '../ui';
 
@@ -22,22 +22,15 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
   const [body, setBody] = useState('');
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<{ attachment: Attachment; previewUri: string }[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const [created, setCreated] = useState<Post | null>(null);
 
   const limits = config?.limits;
+  const titleMin = limits?.titleMin ?? 3;
   const picker = pickImage ?? defaultPickImage;
   const canAttach =
     !!features?.attachments && !!picker && attachments.length < (limits?.attachmentsPerPost ?? 4);
 
-  const errorMessage = (e: unknown) => {
-    if (e instanceof FeedbackApiError) {
-      if (e.status === 413) return strings.errors.uploadTooLarge;
-      if (e.status === 403) return strings.errors.notAllowed;
-      return e.message || strings.errors.generic;
-    }
-    return e instanceof TypeError ? strings.errors.network : strings.errors.generic;
-  };
 
   const attach = async () => {
     if (!picker) return;
@@ -48,19 +41,16 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
       const attachment = await upload.mutateAsync(picked.file);
       setAttachments((list) => [...list, { attachment, previewUri: picked.previewUri }]);
     } catch (e) {
-      setError(errorMessage(e));
+      setError(e);
     }
   };
 
   const submit = () => {
     setError(null);
-    if (title.trim().length < 3) {
-      setError(strings.submit.required);
-      return;
-    }
+    if (title.trim().length < titleMin) return;
     create.mutate(
       { title: title.trim(), body: body.trim(), categoryId, attachmentIds: attachments.map((a) => a.attachment.id) },
-      { onSuccess: setCreated, onError: (e) => setError(errorMessage(e)) },
+      { onSuccess: setCreated, onError: setError },
     );
   };
 
@@ -72,7 +62,7 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
           <Text style={styles.emptyText}>
             {created.moderation === 'approved' ? strings.submit.successPublished : strings.submit.successPending}
           </Text>
-          <Button label="OK" onPress={() => onDone?.(created)} />
+          <Button label={strings.submit.done} onPress={() => onDone?.(created)} />
         </View>
       </View>
     );
@@ -142,11 +132,11 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
         {canAttach && (
           <Button label={strings.submit.attach} variant="secondary" onPress={() => void attach()} loading={upload.isPending} />
         )}
-        {error && <Text style={styles.errorText}>{error}</Text>}
+        <InlineError error={error} />
         <Button
           label={create.isPending ? strings.submit.submitting : strings.submit.submit}
           onPress={submit}
-          disabled={title.trim().length < 3 || upload.isPending}
+          disabled={title.trim().length < titleMin || upload.isPending}
           loading={create.isPending}
         />
         {onCancel && <Button label={strings.submit.cancel} variant="secondary" onPress={onCancel} />}

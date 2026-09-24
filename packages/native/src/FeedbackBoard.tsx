@@ -14,6 +14,7 @@ import { FeedbackList } from './screens/FeedbackList';
 import { FeedbackRoadmap } from './screens/FeedbackRoadmap';
 import { FeedbackSubmit } from './screens/FeedbackSubmit';
 import { FeedbackUpdates, FeedbackUpdatesBadge } from './screens/FeedbackUpdates';
+import { FeedbackErrorBoundary } from './ErrorBoundary';
 import { NativeUIProvider, useUI, type NativeUIOptions } from './ui';
 
 export type FeedbackProviderProps = Omit<CoreProviderProps, 'colorScheme'> & {
@@ -52,7 +53,11 @@ type Route = { name: 'tabs' } | { name: 'post'; id: string; initial?: Post } | {
  */
 export function FeedbackBoard({ initialTab = 'board', headerAccessory, ...providerProps }: FeedbackBoardProps) {
   const nested = useHasFeedbackProvider();
-  const board = <BoardNavigator initialTab={initialTab} headerAccessory={headerAccessory} />;
+  const board = (
+    <FeedbackErrorBoundary>
+      <BoardNavigator initialTab={initialTab} headerAccessory={headerAccessory} />
+    </FeedbackErrorBoundary>
+  );
   // Inside an existing provider (and no new backend config), reuse it.
   if (nested && !providerProps.projectKey && !providerProps.adapter) {
     return <NativeUIProvider options={providerProps}>{board}</NativeUIProvider>;
@@ -89,39 +94,45 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
   }, [features]);
   const activeTab = tabs.includes(tab) ? tab : 'board';
 
-  if (route.name === 'post') {
-    return <FeedbackDetail key={route.id} postId={route.id} initialPost={route.initial} onBack={pop} />;
-  }
-  if (route.name === 'submit') {
-    return <FeedbackSubmit onCancel={pop} onDone={(post) => setStack([{ name: 'tabs' }, { name: 'post', id: post.id, initial: post }])} />;
-  }
-
+  // The tabs stay mounted under pushed screens so going back keeps scroll position,
+  // search and filters, and does not refetch every loaded page.
+  const covered = route.name !== 'tabs';
   return (
-    <View style={styles.container}>
-      {headerAccessory}
-      {tabs.length > 1 && (
-        <View style={styles.tabBar} accessibilityRole="tablist">
-          {tabs.map((t) => {
-            const active = t === activeTab;
-            return (
-              <Pressable
-                key={t}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                onPress={() => setTab(t)}
-                style={[styles.tab, active && styles.tabActive]}
-              >
-                <Text style={[styles.tabText, active && styles.tabTextActive]}>{strings.tabs[t]}</Text>
-                {t === 'updates' && <FeedbackUpdatesBadge />}
-              </Pressable>
-            );
-          })}
-        </View>
+    <>
+      {route.name === 'post' && <FeedbackDetail key={route.id} postId={route.id} initialPost={route.initial} onBack={pop} />}
+      {route.name === 'submit' && (
+        <FeedbackSubmit onCancel={pop} onDone={(post) => setStack([{ name: 'tabs' }, { name: 'post', id: post.id, initial: post }])} />
       )}
-      {activeTab === 'board' && <FeedbackList onOpenPost={openPost} onNewPost={() => push({ name: 'submit' })} />}
-      {activeTab === 'roadmap' && <FeedbackRoadmap onOpenPost={openPost} />}
-      {activeTab === 'updates' && <FeedbackUpdates onOpenPost={openPost} />}
-      {activeTab === 'admin' && <FeedbackAdminQueue onOpenPost={openPost} />}
-    </View>
+      <View
+        style={[styles.container, covered && { display: 'none' }]}
+        accessibilityElementsHidden={covered}
+        importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
+      >
+        {headerAccessory}
+        {tabs.length > 1 && (
+          <View style={styles.tabBar} accessibilityRole="tablist">
+            {tabs.map((t) => {
+              const active = t === activeTab;
+              return (
+                <Pressable
+                  key={t}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => setTab(t)}
+                  style={[styles.tab, active && styles.tabActive]}
+                >
+                  <Text style={[styles.tabText, active && styles.tabTextActive]}>{strings.tabs[t]}</Text>
+                  {t === 'updates' && <FeedbackUpdatesBadge />}
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+        {activeTab === 'board' && <FeedbackList onOpenPost={openPost} onNewPost={() => push({ name: 'submit' })} />}
+        {activeTab === 'roadmap' && <FeedbackRoadmap onOpenPost={openPost} />}
+        {activeTab === 'updates' && <FeedbackUpdates onOpenPost={openPost} />}
+        {activeTab === 'admin' && <FeedbackAdminQueue onOpenPost={openPost} />}
+      </View>
+    </>
   );
 }

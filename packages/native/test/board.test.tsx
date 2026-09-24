@@ -53,7 +53,8 @@ describe('<FeedbackBoard>', () => {
   it('opens a post, comments, and returns', async () => {
     render(<FeedbackBoard adapter={seed()} locale="en" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Dark mode' }));
-    await screen.findByText('Please');
+    // The list stays mounted (hidden) underneath, so its excerpt is in the DOM too.
+    await waitFor(() => expect(screen.getAllByText('Please')).toHaveLength(2));
     fireEvent.change(screen.getByLabelText('Add a comment…'), { target: { value: 'Yes please' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await screen.findByText('Yes please');
@@ -69,9 +70,9 @@ describe('<FeedbackBoard>', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
     await screen.findByText('Thanks! Your post will appear once it has been reviewed.');
     expect(adapter.posts[0]).toMatchObject({ title: 'Offline mode', moderation: 'pending' });
-    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
-    // Shown both as the banner and the status pill on the detail screen.
-    expect(await screen.findAllByText('Awaiting review')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    // Detail banner + detail pill, plus the new card's pill in the (hidden) list underneath.
+    expect(await screen.findAllByText('Awaiting review')).toHaveLength(3);
   });
 
   it('shows the review queue for in-app admins and approves', async () => {

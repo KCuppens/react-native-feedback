@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, errorText } from '../api';
 import { navigate } from '../router';
-import { SecretField } from '../ui';
+import { ConfirmButton, SecretField } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 const TOGGLES: { key: keyof ProjectSettings; label: string; help: string }[] = [
@@ -109,9 +109,30 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
         )}
         {newSecretKey && <SecretField label="New admin API key (copy now, shown once)" value={newSecretKey} revealed />}
         <div className="row wrap">
-          <button onClick={() => rotate.mutate('secret')}>Rotate admin API key</button>
-          <button onClick={() => rotate.mutate('signing')}>Rotate signing secret</button>
-          <button onClick={() => rotate.mutate('public')}>Rotate public key</button>
+          <ConfirmButton
+            label="Rotate admin API key"
+            question="Scripts using the current key stop working. Rotate?"
+            confirmLabel="Rotate"
+            className=""
+            pending={rotate.isPending}
+            onConfirm={() => rotate.mutate('secret')}
+          />
+          <ConfirmButton
+            label="Rotate signing secret"
+            question="Your servers must sign with the new secret. Rotate?"
+            confirmLabel="Rotate"
+            className=""
+            pending={rotate.isPending}
+            onConfirm={() => rotate.mutate('signing')}
+          />
+          <ConfirmButton
+            label="Rotate public key"
+            question="Shipped app builds stop working until updated. Rotate?"
+            confirmLabel="Rotate"
+            className=""
+            pending={rotate.isPending}
+            onConfirm={() => rotate.mutate('public')}
+          />
         </div>
         <p className="muted small">
           Rotating the public key or signing secret breaks existing app builds and server tokens until you ship the new values.

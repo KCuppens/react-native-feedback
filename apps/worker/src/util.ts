@@ -33,9 +33,12 @@ export function generateProjectKeys() {
 }
 
 /** Throw a JSON error `{ error, message }`. */
-export function fail(status: ContentfulStatusCode, error: string, message?: string): never {
+export type InvalidReason = 'required' | 'not_string' | 'too_short' | 'too_long' | 'not_array' | 'too_many';
+
+/** Throw a JSON error `{ error, message, ...details }`; details carry e.g. `{ field, reason }` for form errors. */
+export function fail(status: ContentfulStatusCode, error: string, message?: string, details?: { field: string; reason: InvalidReason }): never {
   throw new HTTPException(status, {
-    res: new Response(JSON.stringify({ error, message: message ?? error }), {
+    res: new Response(JSON.stringify({ error, message: message ?? error, ...details }), {
       status,
       headers: { 'Content-Type': 'application/json' },
     }),
@@ -65,16 +68,16 @@ export function str(
   const value = body[key];
   if (value === undefined) {
     if (opts.optional) return undefined;
-    fail(400, 'invalid_input', `${key} is required`);
+    fail(400, 'invalid_input', `${key} is required`, { field: key, reason: 'required' });
   }
   if (value === null) {
     if (opts.nullable) return null;
-    fail(400, 'invalid_input', `${key} must be a string`);
+    fail(400, 'invalid_input', `${key} must be a string`, { field: key, reason: 'not_string' });
   }
-  if (typeof value !== 'string') fail(400, 'invalid_input', `${key} must be a string`);
+  if (typeof value !== 'string') fail(400, 'invalid_input', `${key} must be a string`, { field: key, reason: 'not_string' });
   const trimmed = value.trim();
-  if (trimmed.length < (opts.min ?? 0)) fail(400, 'invalid_input', `${key} is too short`);
-  if (trimmed.length > opts.max) fail(400, 'invalid_input', `${key} is too long`);
+  if (trimmed.length < (opts.min ?? 0)) fail(400, 'invalid_input', `${key} is too short`, { field: key, reason: 'too_short' });
+  if (trimmed.length > opts.max) fail(400, 'invalid_input', `${key} is too long`, { field: key, reason: 'too_long' });
   return trimmed;
 }
 
@@ -82,9 +85,9 @@ export function stringArray(body: Record<string, unknown>, key: string, max: num
   const value = body[key];
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
-    fail(400, 'invalid_input', `${key} must be an array of strings`);
+    fail(400, 'invalid_input', `${key} must be an array of strings`, { field: key, reason: 'not_array' });
   }
-  if (value.length > max) fail(400, 'invalid_input', `too many ${key}`);
+  if (value.length > max) fail(400, 'invalid_input', `too many ${key}`, { field: key, reason: 'too_many' });
   return [...new Set(value as string[])];
 }
 
@@ -146,6 +149,19 @@ export function ctxOf(c: Context<AppEnv>): ExecutionContext | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Remove R2 objects without failing the request: the rows are already gone, so a storage
+ * hiccup must not turn a successful delete into a 500.
+ */
+export function deleteFilesInBackground(c: Context<AppEnv>, keys: string[], what: string): void {
+  if (keys.length === 0) return;
+  const work = (async () => {
+    for (let i = 0; i < keys.length; i += 1000) await c.env.FILES.delete(keys.slice(i, i + 1000));
+  })().catch((error: unknown) => console.error(JSON.stringify({ msg: 'r2 cleanup failed', what, keys: keys.length, error: String(error) })));
+  const ctx = ctxOf(c);
+  if (ctx) ctx.waitUntil(work);
 }
 
 /** 400 unless the category belongs to the project. */

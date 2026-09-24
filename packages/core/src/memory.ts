@@ -62,6 +62,7 @@ export function createMemoryAdapter(options: MemoryAdapterOptions = {}): Feedbac
     ...seed,
   }));
   const comments = new Map<string, Comment[]>();
+  let lastSeenUpdates = 0;
   const uploads = new Map<string, Attachment>();
 
   const canSee = (p: Post) => p.moderation === 'approved' || p.isMine || isAdmin;
@@ -125,7 +126,7 @@ export function createMemoryAdapter(options: MemoryAdapterOptions = {}): Feedbac
     getPost: async (postId) => wait(find(postId)),
     createPost: async (input) => {
       const who = requireViewer();
-      if (input.title.trim().length < 3) throw new FeedbackApiError(400, 'invalid_input', 'title is too short');
+      if (input.title.trim().length < BOARD_LIMITS.titleMin) throw new FeedbackApiError(400, 'invalid_input', 'title is too short', 'title', 'too_short');
       const ts = Date.now();
       const post: Post = {
         id: id(),
@@ -203,9 +204,12 @@ export function createMemoryAdapter(options: MemoryAdapterOptions = {}): Feedbac
       const items: UpdateItem[] = posts
         .filter((p) => p.isMine && p.statusChangedAt)
         .map((post) => ({ post, kind: 'status' as const, at: post.statusChangedAt! }));
-      return wait({ unseen: items.length, items });
+      return wait({ unseen: items.filter((i) => i.at > lastSeenUpdates).length, items });
     },
-    markUpdatesSeen: () => wait(undefined),
+    markUpdatesSeen: () => {
+      lastSeenUpdates = Date.now();
+      return wait(undefined);
+    },
     admin: {
       listQueue: () => wait({ items: posts.filter((p) => p.moderation === 'pending'), nextCursor: null }),
       approve: async (postId) => wait(replace({ ...find(postId), moderation: 'approved', declineReason: null })),

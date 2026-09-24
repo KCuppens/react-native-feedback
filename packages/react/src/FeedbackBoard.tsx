@@ -6,8 +6,21 @@ import {
   useHasFeedbackProvider,
   type FeedbackProviderProps as CoreProviderProps,
 } from '@kobecuppens/feedback-core/react';
-import { useCallback, useEffect, useInsertionEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useInsertionEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { feedbackCss } from './css';
+import { FeedbackErrorBoundary } from './ErrorBoundary';
 import {
   FeedbackAdminQueue,
   FeedbackDetail,
@@ -115,7 +128,9 @@ export function FeedbackBoard({ initialTab = 'board', headerAccessory, className
   const nested = useHasFeedbackProvider();
   const board = (
     <FeedbackRoot className={className} style={style}>
-      <BoardNavigator initialTab={initialTab} headerAccessory={headerAccessory} />
+      <FeedbackErrorBoundary>
+        <BoardNavigator initialTab={initialTab} headerAccessory={headerAccessory} />
+      </FeedbackErrorBoundary>
     </FeedbackRoot>
   );
   if (nested && !providerProps.projectKey && !providerProps.adapter) {
@@ -132,12 +147,11 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
   const route = stack[stack.length - 1]!;
   const push = useCallback((r: Route) => setStack((s) => [...s, r]), []);
   const pop = useCallback(() => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)), []);
-  const openPost = useCallback((post: Post) => push({ name: 'post', id: post.id, initial: post }), [push]);
 
   // Escape goes back, like the hardware back button on Android.
   useEffect(() => {
     if (stack.length <= 1) return;
-    const onKey = (e: KeyboardEvent) => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) pop();
     };
     window.addEventListener('keydown', onKey);
@@ -153,37 +167,80 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
   }, [features]);
   const activeTab = tabs.includes(tab) ? tab : 'board';
 
-  if (route.name === 'post') return <FeedbackDetail key={route.id} postId={route.id} initialPost={route.initial} onBack={pop} />;
-  if (route.name === 'submit') {
-    return <FeedbackSubmit onCancel={pop} onDone={(post) => setStack([{ name: 'tabs' }, { name: 'post', id: post.id, initial: post }])} />;
-  }
+  // Move focus to the new screen's heading on push, and back to the trigger on pop,
+  // so keyboard and screen reader users keep their place.
+  const root = useRef<HTMLDivElement>(null);
+  const triggers = useRef<(HTMLElement | null)[]>([]);
+  const depth = useRef(stack.length);
+  useEffect(() => {
+    if (stack.length > depth.current) {
+      root.current?.querySelector<HTMLElement>('[data-fb-screen-title]')?.focus();
+    } else if (stack.length < depth.current) {
+      triggers.current.pop()?.focus();
+    }
+    depth.current = stack.length;
+  }, [stack.length]);
+  const navigate = (r: Route) => {
+    triggers.current.push(document.activeElement as HTMLElement | null);
+    push(r);
+  };
+  const open = (post: Post) => navigate({ name: 'post', id: post.id, initial: post });
 
+  // Tabs pattern: arrow keys move between tabs, only the active one is in the tab order.
+  const ids = useId();
+  const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const i = tabs.indexOf(activeTab);
+    const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    const t = tabs[(next + tabs.length) % tabs.length]!;
+    setTab(t);
+    document.getElementById(`${ids}-tab-${t}`)?.focus();
+  };
+
+  // The tabs stay mounted (hidden) under pushed screens so going back keeps scroll
+  // position, search and filters, and does not refetch every loaded page.
+  const covered = route.name !== 'tabs';
   return (
-    <>
-      {headerAccessory}
-      {tabs.length > 1 && (
-        <div {...slot('tabBar')} role="tablist">
-          {tabs.map((t) => (
-            <button
-              key={t}
-              type="button"
-              role="tab"
-              aria-selected={t === activeTab}
-              {...slot('tab', t === activeTab && 'tabActive')}
-              onClick={() => setTab(t)}
-            >
-              {strings.tabs[t]}
-              {t === 'updates' && <FeedbackUpdatesBadge />}
-            </button>
-          ))}
-        </div>
+    <div ref={root} style={{ display: 'contents' }}>
+      {route.name === 'post' && <FeedbackDetail key={route.id} postId={route.id} initialPost={route.initial} onBack={pop} />}
+      {route.name === 'submit' && (
+        <FeedbackSubmit onCancel={pop} onDone={(post) => setStack([{ name: 'tabs' }, { name: 'post', id: post.id, initial: post }])} />
       )}
-      <div role="tabpanel" style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-        {activeTab === 'board' && <FeedbackList onOpenPost={openPost} onNewPost={() => push({ name: 'submit' })} />}
-        {activeTab === 'roadmap' && <FeedbackRoadmap onOpenPost={openPost} />}
-        {activeTab === 'updates' && <FeedbackUpdates onOpenPost={openPost} />}
-        {activeTab === 'admin' && <FeedbackAdminQueue onOpenPost={openPost} />}
+      <div hidden={covered} style={{ display: covered ? 'none' : 'contents' }}>
+        {headerAccessory}
+        {tabs.length > 1 && (
+          <div {...slot('tabBar')} role="tablist" onKeyDown={onTabKey}>
+            {tabs.map((t) => (
+              <button
+                key={t}
+                id={`${ids}-tab-${t}`}
+                type="button"
+                role="tab"
+                aria-selected={t === activeTab}
+                aria-controls={`${ids}-panel`}
+                tabIndex={t === activeTab ? 0 : -1}
+                {...slot('tab', t === activeTab && 'tabActive')}
+                onClick={() => setTab(t)}
+              >
+                {strings.tabs[t]}
+                {t === 'updates' && <FeedbackUpdatesBadge />}
+              </button>
+            ))}
+          </div>
+        )}
+        <div
+          id={`${ids}-panel`}
+          role={tabs.length > 1 ? 'tabpanel' : undefined}
+          aria-labelledby={tabs.length > 1 ? `${ids}-tab-${activeTab}` : undefined}
+          style={{ display: 'flex', flexDirection: 'column', flex: 1 }}
+        >
+          {activeTab === 'board' && <FeedbackList onOpenPost={open} onNewPost={() => navigate({ name: 'submit' })} />}
+          {activeTab === 'roadmap' && <FeedbackRoadmap onOpenPost={open} />}
+          {activeTab === 'updates' && <FeedbackUpdates onOpenPost={open} />}
+          {activeTab === 'admin' && <FeedbackAdminQueue onOpenPost={open} />}
+        </div>
       </div>
-    </>
+    </div>
   );
 }

@@ -92,5 +92,6 @@ export type AppEnv = {
     /** Cached end-user row for the identity, once looked up. */
     viewer: EndUserRow | null | undefined;
     adminLevel: AdminLevel;
+    requestId: string;
   };
 };

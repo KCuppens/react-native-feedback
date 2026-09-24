@@ -40,7 +40,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit -p .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.0"

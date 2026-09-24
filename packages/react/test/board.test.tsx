@@ -28,7 +28,8 @@ describe('<FeedbackBoard> (DOM)', () => {
     );
     const title = await screen.findByText('Dark mode');
     expect(title.closest('article')!.className).toBe('fb-card rounded-xl shadow');
-    expect(title.style.letterSpacing).toBe('2px');
+    // Title styles apply to the heading; the button inside it is the card's link.
+    expect(title.closest('h3')!.style.letterSpacing).toBe('2px');
     first.unmount();
 
     render(<FeedbackBoard adapter={seed()} locale="en" unstyled classNames={{ card: 'my-card' }} />);
@@ -46,7 +47,8 @@ describe('<FeedbackBoard> (DOM)', () => {
     expect(screen.getAllByRole('button', { name: 'Upvote' })[1]!.getAttribute('aria-pressed')).toBe('true');
 
     fireEvent.click(screen.getByRole('button', { name: 'Dark mode' }));
-    await screen.findByText('Please');
+    // The list stays mounted (hidden) underneath, so its excerpt is in the DOM too.
+    await waitFor(() => expect(screen.getAllByText('Please')).toHaveLength(2));
     fireEvent.change(screen.getByLabelText('Add a comment…'), { target: { value: 'Agreed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await screen.findByText('Agreed');

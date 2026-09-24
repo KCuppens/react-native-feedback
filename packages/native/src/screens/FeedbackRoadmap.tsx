@@ -33,7 +33,9 @@ export function FeedbackRoadmap({ onOpenPost }: FeedbackRoadmapProps) {
                     {post.title}
                   </Text>
                   <View style={styles.cardMeta}>
-                    <Text style={styles.cardMetaText}>▲ {post.score}</Text>
+                    <Text style={styles.cardMetaText} accessibilityLabel={strings.post.votes(post.score)}>
+                      ▲ {post.score}
+                    </Text>
                     {post.category && <CategoryPill name={post.category.name} color={post.category.color} />}
                   </View>
                 </Pressable>

@@ -59,7 +59,7 @@ CREATE TABLE posts (
 CREATE INDEX posts_board ON posts (project_id, moderation, score DESC);
 CREATE INDEX posts_new ON posts (project_id, moderation, created_at DESC);
 CREATE INDEX posts_status ON posts (project_id, status);
-CREATE INDEX posts_author ON posts (author_id, created_at);
+CREATE INDEX posts_author ON posts (author_id);
 
 CREATE TABLE votes (
   post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
@@ -80,7 +80,6 @@ CREATE TABLE comments (
   deleted_at INTEGER
 );
 CREATE INDEX comments_post ON comments (post_id, created_at);
-CREATE INDEX comments_author ON comments (author_id, created_at);
 
 CREATE TABLE attachments (
   id TEXT PRIMARY KEY,
@@ -97,7 +96,6 @@ CREATE TABLE attachments (
 );
 CREATE INDEX attachments_post ON attachments (post_id);
 CREATE INDEX attachments_comment ON attachments (comment_id);
-CREATE INDEX attachments_uploader ON attachments (uploader_id, created_at);
 -- Lets the hourly sweep find uploads that were never attached to a post.
 CREATE INDEX attachments_unclaimed ON attachments (created_at) WHERE post_id IS NULL;
 

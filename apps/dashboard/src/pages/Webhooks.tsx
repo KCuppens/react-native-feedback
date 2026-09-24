@@ -2,7 +2,7 @@ import { FEEDBACK_EVENT_TYPES, type FeedbackEventType } from '@kobecuppens/feedb
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, errorText } from '../api';
-import { SecretField } from '../ui';
+import { ConfirmButton, SecretField } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 export function WebhooksPage({ projectId }: { projectId: string }) {
@@ -30,9 +30,7 @@ export function WebhooksPage({ projectId }: { projectId: string }) {
         <article key={h.id} className="card stack">
           <div className="row between">
             <strong className="mono">{h.url}</strong>
-            <button className="ghost danger-text" onClick={() => remove.mutate(h.id)}>
-              Delete
-            </button>
+            <ConfirmButton label="Delete" question="Delete this webhook?" pending={remove.isPending} onConfirm={() => remove.mutate(h.id)} />
           </div>
           <span className="muted small">{h.events.join(', ')}</span>
           <SecretField label="Signing secret" value={h.secret} />
@@ -46,7 +44,7 @@ export function WebhooksPage({ projectId }: { projectId: string }) {
         }}
       >
         <h3>Add endpoint</h3>
-        <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://api.yourapp.com/feedback-webhook" required />
+        <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://api.yourapp.com/feedback-webhook" aria-label="Webhook URL" required />
         <fieldset className="checks">
           <legend>Events</legend>
           {FEEDBACK_EVENT_TYPES.map((type) => (

@@ -1,23 +1,31 @@
 import { formatRelativeTime, locales, POST_STATUSES, type PostStatus } from '@kobecuppens/feedback-core';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { api, errorText } from '../api';
-import { STATUS_LABELS, StatusBadge } from '../ui';
+import { ConfirmButton, STATUS_LABELS, StatusBadge, useDialogFocus } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 export function PostDrawer({ projectId, postId, onClose }: { projectId: string; postId: string; onClose: () => void }) {
   const admin = api.project(projectId);
   const invalidate = useProjectInvalidate(projectId);
   const post = useQuery({ queryKey: ['p', projectId, 'post', postId], queryFn: () => admin.getPost(postId) });
-  const comments = useQuery({ queryKey: ['p', projectId, 'comments', postId], queryFn: () => admin.listComments(postId) });
+  const comments = useInfiniteQuery({
+    queryKey: ['p', projectId, 'comments', postId],
+    queryFn: ({ pageParam }) => admin.listComments(postId, pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.nextCursor,
+  });
+  const commentList = comments.data?.pages.flatMap((page) => page.items) ?? [];
   const [reply, setReply] = useState('');
   const [mergeTarget, setMergeTarget] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
+  const [mergeSearch, setMergeSearch] = useState('');
 
+  // Searchable, so low-voted duplicates beyond the top 100 can still be picked.
   const mergeCandidates = useQuery({
-    queryKey: ['p', projectId, 'merge-candidates'],
-    queryFn: async () => (await admin.listPosts({ moderation: 'approved', sort: 'top', limit: 100 })).items,
+    queryKey: ['p', projectId, 'merge-candidates', mergeSearch.trim()],
+    queryFn: async () => (await admin.listPosts({ moderation: 'approved', sort: 'top', limit: 100, q: mergeSearch.trim() || undefined })).items,
   });
 
   const run = <T,>(fn: () => Promise<T>) => ({ mutationFn: fn, onSuccess: invalidate });
@@ -47,18 +55,14 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
     },
   });
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const dialog = useDialogFocus<HTMLElement>(onClose);
 
   const error = [approve, decline, setStatus, sendReply, removeComment, merge, remove].find((m) => m.isError)?.error;
   const p = post.data;
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label="Post">
+      <aside ref={dialog} tabIndex={-1} className="drawer" role="dialog" aria-modal="true" aria-label="Post">
         <div className="row between">
           <span className="muted small">{p ? `${p.author.name ?? 'Anonymous'} · ${formatRelativeTime(locales.en, p.createdAt)}` : ''}</span>
           <button className="ghost" onClick={onClose} aria-label="Close">
@@ -84,8 +88,8 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
               {p.body && <p className="body">{p.body}</p>}
               {p.attachments.length > 0 && (
                 <div className="thumbs">
-                  {p.attachments.map((a) => (
-                    <a key={a.id} href={a.url} target="_blank" rel="noreferrer">
+                  {p.attachments.map((a, i) => (
+                    <a key={a.id} href={a.url} target="_blank" rel="noreferrer" aria-label={`Attachment ${i + 1} (opens in a new tab)`}>
                       <img src={a.url} alt="" />
                     </a>
                   ))}
@@ -100,7 +104,12 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                     </button>
                     {p.moderation === 'pending' && (
                       <>
-                        <input value={declineReason} onChange={(e) => setDeclineReason(e.target.value)} placeholder="Decline reason (optional)" />
+                        <input
+                          value={declineReason}
+                          onChange={(e) => setDeclineReason(e.target.value)}
+                          placeholder="Decline reason (optional)"
+                          aria-label="Decline reason"
+                        />
                         <button className="danger" onClick={() => decline.mutate()} disabled={decline.isPending}>
                           Decline
                         </button>
@@ -120,6 +129,13 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                 </label>
                 {!p.mergedIntoId && (
                   <div className="row">
+                    <input
+                      type="search"
+                      value={mergeSearch}
+                      onChange={(e) => setMergeSearch(e.target.value)}
+                      placeholder="Find duplicate target…"
+                      aria-label="Search merge target"
+                    />
                     <select value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)} aria-label="Merge into">
                       <option value="">Merge into…</option>
                       {mergeCandidates.data
@@ -155,9 +171,11 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
               {error && <p className="error">{errorText(error)}</p>}
 
               <h3>Comments</h3>
-              {comments.data?.items.length === 0 && <p className="muted">No comments yet.</p>}
+              {comments.isPending && <p className="muted">Loading comments…</p>}
+              {comments.isError && <p className="error">{errorText(comments.error)}</p>}
+              {comments.isSuccess && commentList.length === 0 && <p className="muted">No comments yet.</p>}
               <ul className="comments">
-                {comments.data?.items.map((c) => (
+                {commentList.map((c) => (
                   <li key={c.id} className={c.isOfficial ? 'official' : undefined}>
                     <div className="row between small">
                       <strong>
@@ -166,15 +184,24 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                       </strong>
                       <span className="row muted">
                         {formatRelativeTime(locales.en, c.createdAt)}
-                        <button className="ghost small" onClick={() => removeComment.mutate(c.id)} aria-label="Delete comment">
-                          Delete
-                        </button>
+                        <ConfirmButton
+                          label="Delete"
+                          question="Delete this comment?"
+                          className="ghost small"
+                          pending={removeComment.isPending}
+                          onConfirm={() => removeComment.mutate(c.id)}
+                        />
                       </span>
                     </div>
                     <p className="body">{c.body}</p>
                   </li>
                 ))}
               </ul>
+              {comments.hasNextPage && (
+                <button onClick={() => void comments.fetchNextPage()} disabled={comments.isFetchingNextPage}>
+                  Load more comments
+                </button>
+              )}
               <form
                 className="stack"
                 onSubmit={(e) => {
@@ -182,7 +209,13 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                   if (reply.trim()) sendReply.mutate();
                 }}
               >
-                <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Official reply (shown with a Team badge)" rows={3} />
+                <textarea
+                  value={reply}
+                  onChange={(e) => setReply(e.target.value)}
+                  placeholder="Official reply (shown with a Team badge)"
+                  aria-label="Official reply"
+                  rows={3}
+                />
                 <button className="primary" disabled={!reply.trim() || sendReply.isPending}>
                   Reply as team
                 </button>

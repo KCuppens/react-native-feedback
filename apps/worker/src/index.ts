@@ -11,6 +11,14 @@ import { fail, flag } from './util';
 
 export const app = new Hono<AppEnv>();
 
+// Correlate client reports with logs: Cloudflare's ray id when present.
+app.use('*', async (c, next) => {
+  const requestId = c.req.header('cf-ray') ?? crypto.randomUUID();
+  c.set('requestId', requestId);
+  await next();
+  c.header('X-Request-Id', requestId);
+});
+
 // Public/admin API is called from any app origin; credentials never ride on CORS
 // requests (the dashboard is same-origin), so a wildcard origin is safe here.
 app.use('/v1/*', async (c, next) => {
@@ -60,10 +68,19 @@ app.route('/v1', publicRoutes);
 async function serveSpa(c: Context<AppEnv>, prefix: '/admin/' | '/p/') {
   if (!c.env.ASSETS) fail(404, 'not_found');
   const url = new URL(c.req.url);
-  const asset = await c.env.ASSETS.fetch(c.req.raw);
-  if (asset.status !== 404) return asset;
+  let asset = await c.env.ASSETS.fetch(c.req.raw);
   // Client-side routes fall back to the SPA shell.
-  return c.env.ASSETS.fetch(new Request(new URL(prefix, url), c.req.raw));
+  if (asset.status === 404) asset = await c.env.ASSETS.fetch(new Request(new URL(prefix, url), c.req.raw));
+  const res = new Response(asset.body, asset);
+  // The dashboard shows secrets and both pages render user content: lock them down.
+  res.headers.set(
+    'Content-Security-Policy',
+    "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+  );
+  res.headers.set('X-Frame-Options', 'DENY');
+  res.headers.set('Referrer-Policy', 'no-referrer');
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  return res;
 }
 
 app.get('/admin', (c) => {
@@ -92,8 +109,20 @@ app.onError((err, c) => {
     }
     return new Response(res.body, { status: res.status, headers });
   }
-  console.error('unhandled error', err);
-  return c.json({ error: 'internal_error', message: 'Something went wrong' }, 500);
+  const requestId = c.get('requestId');
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      msg: 'unhandled error',
+      requestId,
+      method: c.req.method,
+      path: c.req.path,
+      projectId: c.get('project')?.id,
+      error: String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    }),
+  );
+  return c.json({ error: 'internal_error', message: 'Something went wrong', requestId }, 500, requestId ? { 'X-Request-Id': requestId } : {});
 });
 
 export default {

@@ -40,9 +40,16 @@ describe('identity', () => {
 
     const { signFeedbackUser } = await import('@kobecuppens/feedback-core/server');
     const old = await signFeedbackUser({ id: 'u1' }, h.project.signingSecret, Date.now() - 2 * 86_400_000);
-    const res = await h.request('/v1/config', { headers: { ...headers, 'X-Feedback-User': old } });
+    // Reads fall back to a signed-out view; writes demand a fresh token.
+    const read = await h.request('/v1/config', { headers: { ...headers, 'X-Feedback-User': old } });
+    expect(read.status).toBe(200);
+    expect(((await read.json()) as { viewer: { identified: boolean } }).viewer.identified).toBe(false);
+    const res = await h.request('/v1/posts', { method: 'POST', headers: { ...headers, 'X-Feedback-User': old }, json: { title: 'Hello there' } });
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ error: 'user_token_expired' });
+
+    const reserved = await signFeedbackUser({ id: 'system:team' }, h.project.signingSecret);
+    expect((await h.request('/v1/config', { headers: { ...headers, 'X-Feedback-User': reserved } })).status).toBe(401);
   });
 
   it('reports features per viewer', async () => {

@@ -16,8 +16,8 @@ import {
   recountVotes,
   type PostRecord,
 } from '../posts';
-import { LIMITS, saveSettings, validateSettingsPatch } from '../projects';
-import { assertCategory, ctxOf, fail, newId, now, originOf, parseCursor, parseLimit, randomToken, readJson, str } from '../util';
+import { LIMITS, patchSettings, validateSettingsPatch } from '../projects';
+import { assertCategory, ctxOf, deleteFilesInBackground, fail, newId, now, originOf, parseCursor, parseLimit, randomToken, readJson, str } from '../util';
 import { loadCategories } from './public';
 
 export const adminRoutes = new Hono<AppEnv>();
@@ -53,7 +53,7 @@ adminRoutes.get('/posts', async (c) => {
   const page = await listPosts(c.env, originOf(c), {
     projectId: c.get('project').id,
     viewerId: null,
-    visibility: { kind: 'admin', moderation },
+    visibility: { kind: 'byModeration', moderation },
     sort: parseSort(c.req.query('sort')),
     statuses: parseStatuses(c.req.query('status')),
     categoryId: c.req.query('category') || undefined,
@@ -69,7 +69,7 @@ adminRoutes.get('/queue', async (c) => {
   const page = await listPosts(c.env, originOf(c), {
     projectId: c.get('project').id,
     viewerId: null,
-    visibility: { kind: 'admin', moderation: 'pending' },
+    visibility: { kind: 'byModeration', moderation: 'pending' },
     sort: 'new',
     offset: parseCursor(c.req.query('cursor')),
     limit: parseLimit(c.req.query('limit'), 50, 100),
@@ -159,9 +159,10 @@ adminRoutes.delete('/posts/:id', async (c) => {
     .all<{ id: string }>();
   const ids = [post.id, ...merged.map((m) => m.id)];
   const keys = (await Promise.all(ids.map((id) => attachmentKeysForPost(c.env, id)))).flat();
-  await emit(c, 'post.deleted', post.id, { snapshot: publicPost(post), mergedIds: ids.slice(1) });
   await c.env.DB.batch(ids.map((id) => c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(id)));
-  if (keys.length) await c.env.FILES.delete(keys);
+  // Announce only once the delete has committed.
+  await emit(c, 'post.deleted', post.id, { snapshot: publicPost(post), mergedIds: ids.slice(1) });
+  deleteFilesInBackground(c, keys, `post ${post.id}`);
   return c.body(null, 204);
 });
 
@@ -173,15 +174,21 @@ adminRoutes.post('/posts/:id/merge', async (c) => {
   const target = await loadPost(c, intoId);
   if (target.mergedIntoId) fail(400, 'invalid_input', 'target is itself merged');
   const ts = now();
+  // Claim the source first, re-checking both sides in SQL: two concurrent merges (A→B, B→A)
+  // would otherwise both pass the checks above and create a cycle.
+  const claimed = await c.env.DB.prepare(
+    `UPDATE posts SET merged_into_id = ?1, status = 'closed', status_changed_at = ?2, updated_at = ?2
+     WHERE id = ?3 AND merged_into_id IS NULL AND (SELECT merged_into_id FROM posts WHERE id = ?1) IS NULL`,
+  )
+    .bind(target.id, ts, source.id)
+    .run();
+  if (!claimed.meta.changes) fail(409, 'merge_conflict', 'One of these posts was merged in the meantime.');
   await c.env.DB.batch([
     // Carry supporters over; users who already voted on the target keep their vote.
     c.env.DB.prepare(
       'INSERT OR IGNORE INTO votes (post_id, user_id, value, created_at) SELECT ?, user_id, value, created_at FROM votes WHERE post_id = ?',
     ).bind(target.id, source.id),
     recountVotes(c.env, target.id),
-    c.env.DB.prepare(
-      "UPDATE posts SET merged_into_id = ?, status = 'closed', status_changed_at = ?, updated_at = ? WHERE id = ?",
-    ).bind(target.id, ts, ts, source.id),
     c.env.DB.prepare('UPDATE posts SET merged_into_id = ? WHERE merged_into_id = ?').bind(target.id, source.id),
   ]);
   await emit(c, 'post.merged', source.id, { intoId: target.id });
@@ -333,9 +340,7 @@ config.get('/settings', (c) => c.json(c.get('project').settings));
 
 config.patch('/settings', async (c) => {
   const patch = validateSettingsPatch(await readJson(c.req.raw));
-  const settings = { ...c.get('project').settings, ...patch };
-  await saveSettings(c.env, c.get('project').id, settings);
-  return c.json(settings);
+  return c.json(await patchSettings(c.env, c.get('project').id, patch));
 });
 
 adminRoutes.route('/', config);

@@ -1,4 +1,4 @@
-import { locales, type FeedbackEventType, type WebhookConfig } from '@kobecuppens/feedback-core';
+import { FEEDBACK_EVENT_TYPES, locales, type FeedbackEventType, type WebhookConfig } from '@kobecuppens/feedback-core';
 import { signWebhook } from '@kobecuppens/feedback-core/server';
 import type { EndUserRow, Env, EventMessage } from './env';
 import { getPost, publicPost, type PostRecord } from './posts';
@@ -44,10 +44,12 @@ export async function emitEvent(env: Env, ctx: { waitUntil(promise: Promise<unkn
     } catch (error) {
       // The change is already committed and the outbox row is stored: the hourly
       // sweep (maintenance.ts) delivers it. Failing the request would invite duplicates.
-      console.error('event enqueue failed', id, error);
+      console.error(JSON.stringify({ msg: 'event enqueue failed', eventId: id, error: String(error) }));
     }
   } else {
-    const work = processEvent(env, id).catch((error: unknown) => console.error('event processing failed', id, error));
+    const work = processEvent(env, id).catch((error: unknown) =>
+      console.error(JSON.stringify({ msg: 'event processing failed', eventId: id, error: String(error) })),
+    );
     if (ctx) ctx.waitUntil(work);
     else await work;
   }
@@ -61,7 +63,7 @@ export async function handleEventBatch(batch: MessageBatch<EventMessage>, env: E
         await processEvent(env, message.body.eventId);
         message.ack();
       } catch (error) {
-        console.error('event processing failed', message.body.eventId, error);
+        console.error(JSON.stringify({ msg: 'event processing failed', eventId: message.body.eventId, error: String(error) }));
         message.retry();
       }
     }),
@@ -96,17 +98,35 @@ export async function processEvent(env: Env, eventId: string): Promise<void> {
     data: { post: post ? publicPost(post) : (snapshot ?? null), ...extra },
   });
 
-  await Promise.allSettled([
+  const [hooks, mail] = await Promise.allSettled([
     deliverWebhooks(env, project.id, event.type, body),
     sendEmails(env, { type: event.type, project, post, author, actorId: event.actor_id, extra, origin }),
   ]);
+  // Delivery is at-most-once (the event is already claimed), so a failure here is final: log it.
+  for (const [channel, result] of [['webhooks', hooks], ['email', mail]] as const) {
+    if (result.status === 'rejected') {
+      console.error(JSON.stringify({ msg: 'event delivery failed', channel, eventId, type: event.type, projectId: project.id, error: String(result.reason) }));
+    }
+  }
+}
+
+/** Stored event lists are JSON; ignore anything malformed rather than failing delivery. */
+function parseEventTypes(raw: string): FeedbackEventType[] {
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value)
+      ? value.filter((e): e is FeedbackEventType => (FEEDBACK_EVENT_TYPES as readonly unknown[]).includes(e))
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 async function deliverWebhooks(env: Env, projectId: string, type: FeedbackEventType, body: string): Promise<void> {
   const { results } = await env.DB.prepare('SELECT * FROM webhooks WHERE project_id = ?')
     .bind(projectId)
     .all<{ id: string; url: string; secret: string; events: string }>();
-  const targets = results.filter((w) => (JSON.parse(w.events) as string[]).includes(type));
+  const targets = results.filter((w) => parseEventTypes(w.events).includes(type));
   await Promise.allSettled(
     targets.map(async (hook) => {
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -123,9 +143,9 @@ async function deliverWebhooks(env: Env, projectId: string, type: FeedbackEventT
             signal: AbortSignal.timeout(10_000),
           });
           if (res.ok) return;
-          console.warn('webhook non-2xx', hook.id, res.status);
+          console.warn(JSON.stringify({ msg: 'webhook non-2xx', hookId: hook.id, status: res.status }));
         } catch (error) {
-          console.warn('webhook failed', hook.id, error);
+          console.warn(JSON.stringify({ msg: 'webhook failed', hookId: hook.id, error: String(error) }));
         }
       }
     }),
@@ -133,7 +153,7 @@ async function deliverWebhooks(env: Env, projectId: string, type: FeedbackEventT
 }
 
 export function toWebhookConfig(row: { id: string; url: string; secret: string; events: string; created_at: number }): WebhookConfig {
-  return { id: row.id, url: row.url, secret: row.secret, events: JSON.parse(row.events), createdAt: row.created_at };
+  return { id: row.id, url: row.url, secret: row.secret, events: parseEventTypes(row.events), createdAt: row.created_at };
 }
 
 // ---------------------------------------------------------------------------

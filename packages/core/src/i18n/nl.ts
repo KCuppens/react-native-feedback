@@ -1,6 +1,8 @@
 import type { FeedbackStrings } from './en';
 
 export const nl: FeedbackStrings = {
+  dateLocale: 'nl',
+  common: { loading: 'Laden…' },
   tabs: { board: 'Feedback', roadmap: 'Roadmap', updates: 'Updates', admin: 'Nakijken' },
   sort: { top: 'Populair', new: 'Nieuw', trending: 'Trending' },
   status: {
@@ -34,6 +36,7 @@ export const nl: FeedbackStrings = {
     anonymous: 'Anoniem',
     official: 'Team',
     mergedInto: 'Samengevoegd met een ander bericht',
+    openAttachment: (n) => `Bijlage ${n} openen`,
     back: 'Terug',
     attachments: 'Bijlagen',
   },
@@ -58,6 +61,7 @@ export const nl: FeedbackStrings = {
     successPending: 'Bedankt! Je bericht verschijnt zodra het is nagekeken.',
     successPublished: 'Bedankt! Je bericht staat online.',
     cancel: 'Annuleren',
+    done: 'Klaar',
     tooLong: (max) => `Maximaal ${max} tekens.`,
     required: 'Verplicht',
   },
@@ -88,6 +92,10 @@ export const nl: FeedbackStrings = {
     network: 'Controleer je verbinding en probeer opnieuw.',
     notAllowed: 'Dat kan hier niet.',
     uploadTooLarge: 'Dat bestand is te groot.',
+    rateLimited: 'Je gaat wat snel. Probeer het zo meteen opnieuw.',
+    signIn: 'Meld je opnieuw aan om verder te gaan.',
+    boardNotFound: 'Dit bord bestaat niet of is niet openbaar.',
+    boardLoadFailed: 'Kon dit bord niet laden. Controleer je verbinding en probeer opnieuw.',
   },
   time: {
     justNow: 'zonet',

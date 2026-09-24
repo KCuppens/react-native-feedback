@@ -4,7 +4,7 @@ import { createContext, useContext, useMemo, type ComponentType, type CSSPropert
 
 export const SLOT_NAMES = [
   'root', 'header', 'headerTitle', 'backButton', 'tabBar', 'tab', 'tabActive', 'tabBadge', 'toolbar', 'searchInput',
-  'chipRow', 'chip', 'chipActive', 'list', 'card', 'cardPending', 'cardBody', 'cardTitle', 'cardExcerpt', 'cardMeta',
+  'chipRow', 'chip', 'chipActive', 'list', 'card', 'cardPending', 'cardBody', 'cardTitle', 'cardLink', 'cardExcerpt', 'cardMeta',
   'cardMetaText', 'voteBox', 'voteButton', 'voteButtonActive', 'voteCount', 'statusPill', 'categoryPill',
   'moderationBanner', 'button', 'buttonSecondary', 'buttonDanger', 'fab', 'form', 'inputLabel', 'input', 'textarea',
   'helperText', 'errorText', 'detail', 'detailTitle', 'detailBody', 'attachmentRow', 'attachmentImage', 'sectionTitle',

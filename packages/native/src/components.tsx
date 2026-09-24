@@ -1,5 +1,6 @@
-import { formatRelativeTime, type Post, type PostStatus } from '@kobecuppens/feedback-core';
-import { ActivityIndicator, Image, Pressable, Text, View } from 'react-native';
+import { describeError, formatRelativeTime, type Post, type PostStatus } from '@kobecuppens/feedback-core';
+import { memo, useEffect } from 'react';
+import { AccessibilityInfo, ActivityIndicator, Image, Platform, Pressable, Text, View } from 'react-native';
 import {
   useUI,
   type AvatarProps,
@@ -138,6 +139,24 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
   );
 }
 
+/**
+ * A failed action's message, announced to screen readers (live region on Android,
+ * an explicit announcement on iOS). Renders nothing without an error.
+ */
+export function InlineError({ error }: { error: unknown }) {
+  const { styles, strings } = useUI();
+  const message = error ? describeError(strings, error) : null;
+  useEffect(() => {
+    if (message && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(message);
+  }, [message]);
+  if (!message) return null;
+  return (
+    <Text style={styles.errorText} accessibilityRole="alert" accessibilityLiveRegion="polite">
+      {message}
+    </Text>
+  );
+}
+
 export function Header(props: HeaderProps) {
   const { components, styles, strings, hideHeader } = useUI();
   if (hideHeader) return null;
@@ -179,7 +198,11 @@ export function PostStatusPill({ post }: { post: Post }) {
   return <StatusPill status={post.status} label={strings.status[post.status as PostStatus]} />;
 }
 
-export function PostCard(props: PostCardProps) {
+/**
+ * Memoized on data only: lists pass callbacks that delegate to the latest handlers, so
+ * ignoring their identity keeps every visible card from re-rendering on each keystroke or vote.
+ */
+export const PostCard = memo(function PostCard(props: PostCardProps) {
   const { components, styles, strings } = useUI();
   if (components.PostCard) return <components.PostCard {...props} />;
   const { post } = props;
@@ -215,4 +238,4 @@ export function PostCard(props: PostCardProps) {
       </View>
     </Pressable>
   );
-}
+}, (a, b) => a.post === b.post && a.canVote === b.canVote && a.canDownvote === b.canDownvote);

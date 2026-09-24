@@ -58,8 +58,8 @@ function QueueCard({ projectId, post }: { projectId: string; post: Post }) {
       {post.body && <p className="body">{post.body}</p>}
       {post.attachments.length > 0 && (
         <div className="thumbs">
-          {post.attachments.map((a) => (
-            <a key={a.id} href={a.url} target="_blank" rel="noreferrer">
+          {post.attachments.map((a, i) => (
+            <a key={a.id} href={a.url} target="_blank" rel="noreferrer" aria-label={`Attachment ${i + 1} (opens in a new tab)`}>
               <img src={a.url} alt="" />
             </a>
           ))}
@@ -67,7 +67,7 @@ function QueueCard({ projectId, post }: { projectId: string; post: Post }) {
       )}
       {declining ? (
         <div className="row">
-          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason shown to the author (optional)" autoFocus />
+          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason shown to the author (optional)" aria-label="Decline reason" autoFocus />
           <button className="danger" onClick={() => decline.mutate()} disabled={decline.isPending}>
             Decline
           </button>

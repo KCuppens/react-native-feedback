@@ -44,7 +44,6 @@ import {
 
 export const publicRoutes = new Hono<AppEnv>();
 
-
 // Explicit paths: a '*' middleware here would also match sibling /v1/* routers once mounted.
 for (const path of ['/config', '/posts', '/posts/*', '/uploads', '/roadmap', '/me/*']) {
   publicRoutes.use(path, projectAuth);
@@ -83,6 +82,7 @@ publicRoutes.get('/config', async (c) => {
       attachmentMaxBytes: LIMITS.attachmentMaxBytes,
       attachmentsPerPost: LIMITS.attachmentsPerPost,
       attachmentMimeTypes: [...LIMITS.attachmentMimeTypes],
+      titleMin: LIMITS.titleMin,
     },
   };
   return c.json(config);
@@ -93,7 +93,7 @@ publicRoutes.get('/posts', async (c) => {
   const page = await listPosts(c.env, originOf(c), {
     projectId: c.get('project').id,
     viewerId: viewer?.id ?? null,
-    visibility: { kind: 'public' },
+    visibility: { kind: 'approvedOrOwn' },
     sort: parseSort(c.req.query('sort')),
     statuses: parseStatuses(c.req.query('status')),
     categoryId: c.req.query('category') || undefined,
@@ -120,16 +120,19 @@ publicRoutes.get('/posts/:id', async (c) => {
 
 const rateLimited = () => fail(429, 'rate_limited', 'Slow down a little and try again later.');
 
-async function enforceRate(c: Context<AppEnv>, sql: string, userId: string, max: number) {
-  const row = await c.env.DB.prepare(sql).bind(userId, now() - 3_600_000).first<{ n: number }>();
-  if ((row?.n ?? 0) >= max) rateLimited();
-}
+const HOUR = 3_600_000;
+const PER_USER_PER_HOUR = { post: LIMITS.postsPerHour, comment: LIMITS.commentsPerHour, upload: LIMITS.uploadsPerHour, vote: null };
 
-/** Anonymous ids are chosen by the client, so their writes are also capped per IP. */
-async function limitAnonymous(c: Context<AppEnv>, action: keyof typeof LIMITS.anonymousPerIpPerHour) {
+/**
+ * Hourly write caps, counted atomically so parallel requests cannot slip past.
+ * Anonymous ids are chosen by the client, so their writes are also capped per IP.
+ */
+async function limitWrites(c: Context<AppEnv>, viewerId: string, action: keyof typeof PER_USER_PER_HOUR) {
+  const perUser = PER_USER_PER_HOUR[action];
+  if (perUser !== null && (await overRateLimit(c.env, `user:${viewerId}:${action}`, perUser, HOUR))) rateLimited();
   if (!c.get('identity')?.anonymous) return;
   const key = `anon:${c.get('project').id}:${action}:${clientIp(c.req)}`;
-  if (await overRateLimit(c.env, key, LIMITS.anonymousPerIpPerHour[action], 3_600_000)) rateLimited();
+  if (await overRateLimit(c.env, key, LIMITS.anonymousPerIpPerHour[action], HOUR)) rateLimited();
 }
 
 publicRoutes.post('/posts', async (c) => {
@@ -145,10 +148,7 @@ publicRoutes.post('/posts', async (c) => {
 
   if (categoryId) await assertCategory(c, categoryId);
   const admin = isInAppAdmin(c);
-  if (!admin) {
-    await enforceRate(c, 'SELECT COUNT(*) AS n FROM posts WHERE author_id = ? AND created_at > ?', viewer.id, LIMITS.postsPerHour);
-    await limitAnonymous(c, 'post');
-  }
+  if (!admin) await limitWrites(c, viewer.id, 'post');
 
   const id = newId();
   const ts = now();
@@ -179,9 +179,9 @@ publicRoutes.post('/posts/:id/vote', async (c) => {
   const viewer = await requireViewer(c);
   const post = await visiblePost(c, c.req.param('id'), viewer.id);
   if (post.moderation !== 'approved' || post.mergedIntoId) fail(409, 'post_not_votable');
-  await limitAnonymous(c, 'vote');
+  await limitWrites(c, viewer.id, 'vote');
 
-  await c.env.DB.batch([
+  const results = await c.env.DB.batch([
     value === 0
       ? c.env.DB.prepare('DELETE FROM votes WHERE post_id = ? AND user_id = ?').bind(post.id, viewer.id)
       : c.env.DB.prepare(
@@ -189,9 +189,11 @@ publicRoutes.post('/posts/:id/vote', async (c) => {
            ON CONFLICT (post_id, user_id) DO UPDATE SET value = excluded.value`,
         ).bind(post.id, viewer.id, value, now()),
     recountVotes(c.env, post.id),
+    c.env.DB.prepare('SELECT score, upvotes, downvotes FROM posts WHERE id = ?').bind(post.id),
   ]);
-  const updated = await getPost(c.env, originOf(c), project.id, post.id, viewer.id);
-  return c.json(publicPost(updated!));
+  // Only the counters changed, so answer from the batch instead of re-reading the post.
+  const counts = results[2]!.results[0] as { score: number; upvotes: number; downvotes: number };
+  return c.json(publicPost({ ...post, ...counts, myVote: value }));
 });
 
 publicRoutes.get('/posts/:id/comments', async (c) => {
@@ -211,15 +213,7 @@ publicRoutes.post('/posts/:id/comments', async (c) => {
   const text = str(body, 'body', { min: 1, max: LIMITS.commentMax })!;
   const attachmentIds = stringArray(body, 'attachmentIds', LIMITS.attachmentsPerPost);
   if (attachmentIds.length && !project.settings.allowAttachments) fail(403, 'attachments_disabled');
-  if (!admin) {
-    await enforceRate(
-      c,
-      'SELECT COUNT(*) AS n FROM comments WHERE author_id = ? AND created_at > ?',
-      viewer.id,
-      LIMITS.commentsPerHour,
-    );
-    await limitAnonymous(c, 'comment');
-  }
+  if (!admin) await limitWrites(c, viewer.id, 'comment');
 
   const id = newId();
   const ts = now();
@@ -279,14 +273,14 @@ publicRoutes.post('/uploads', async (c) => {
   const viewer = await requireViewer(c);
   const maxBody = LIMITS.attachmentMaxBytes + 64 * 1024;
   if (Number(c.req.header('Content-Length') ?? 0) > maxBody) fail(413, 'file_too_large');
+  // Before reading the body, so callers over the limit cannot make the Worker buffer 5 MB each time.
+  await limitWrites(c, viewer.id, 'upload');
   const form = await readFormWithLimit(c.req.raw, maxBody);
   // FormData.get is typed as string-only in workers-types; at runtime file parts are File objects.
   const file = form.get('file') as unknown as File | string | null;
   if (!file || typeof file === 'string') fail(400, 'missing_file');
   if (!(LIMITS.attachmentMimeTypes as readonly string[]).includes(file.type)) fail(415, 'unsupported_type');
   if (file.size > LIMITS.attachmentMaxBytes) fail(413, 'file_too_large');
-  await enforceRate(c, 'SELECT COUNT(*) AS n FROM attachments WHERE uploader_id = ? AND created_at > ?', viewer.id, LIMITS.uploadsPerHour);
-  await limitAnonymous(c, 'upload');
 
   const id = newId();
   const key = `${project.id}/${id}`;
@@ -306,7 +300,7 @@ publicRoutes.get('/roadmap', async (c) => {
   const { items } = await listPosts(c.env, originOf(c), {
     projectId: c.get('project').id,
     viewerId: viewer?.id ?? null,
-    visibility: { kind: 'admin', moderation: 'approved' },
+    visibility: { kind: 'byModeration', moderation: 'approved' },
     sort: 'top',
     statuses: [...ROADMAP_STATUSES],
     offset: 0,

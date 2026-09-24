@@ -124,6 +124,7 @@ export interface BoardConfig {
     attachmentMaxBytes: number;
     attachmentsPerPost: number;
     attachmentMimeTypes: string[];
+    titleMin: number;
   };
 }
 
@@ -135,6 +136,7 @@ export const BOARD_LIMITS: BoardConfig['limits'] = {
   attachmentMaxBytes: 5 * 1024 * 1024,
   attachmentsPerPost: 4,
   attachmentMimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/heic'],
+  titleMin: 3,
 };
 
 export type ClientFeatures = Partial<BoardConfig['features']> & { admin?: boolean };
@@ -229,6 +231,9 @@ export class FeedbackApiError extends Error {
     readonly status: number,
     readonly code: string,
     message?: string,
+    /** For `invalid_input`: which field failed, and why. */
+    readonly field?: string,
+    readonly reason?: 'required' | 'not_string' | 'too_short' | 'too_long' | 'not_array' | 'too_many',
   ) {
     super(message ?? code);
     this.name = 'FeedbackApiError';

@@ -122,6 +122,18 @@ cd apps/worker && npm run project:create -- --name "1% Better" --remote --env pr
 
 Configure per project in the dashboard or `POST /v1/admin/webhooks`. Events: `post.created`, `post.approved`, `post.declined`, `post.status_changed`, `post.merged`, `post.deleted`, `comment.created`. Verify with `verifyWebhook(secret, rawBody, req.headers['x-feedback-signature'])` from `@kobecuppens/feedback-core/server`. Use this to send your own push notifications.
 
+**Delivery.** Each event is POSTed once, **at most once**: the worker claims the event before sending, tries your endpoint twice (10s timeout each), and does not retry later. Answer `2xx` quickly and do heavy work asynchronously. Use `id` to deduplicate if you process events elsewhere too.
+
+```json
+{
+  "id": "5f0c…",
+  "type": "post.status_changed",
+  "projectId": "…",
+  "createdAt": 1767225600000,
+  "data": { "post": { "id": "…", "title": "Dark mode", "status": "planned", "…": "…" }, "previousStatus": "open" }
+}
+```
+
 ## Deploy the backend
 
 ```bash
@@ -133,7 +145,7 @@ wrangler secret put ADMIN_PASSWORD --env production    # 12+ chars
 wrangler secret put SESSION_SECRET --env production    # 32+ random chars
 # set FROM_EMAIL (a Cloudflare Email Sending domain) and ADMIN_EMAIL in wrangler.jsonc
 npm run db:migrate:remote
-cd ../.. && npm run build:web && cd apps/worker && npm run deploy
+cd ../.. && npm run deploy   # typecheck, test, build the web apps, migrate D1, deploy
 ```
 
 Set `DEFAULT_API_URL` in `packages/core/src/hosted.ts` to your deployed URL, so apps can omit `baseUrl`.

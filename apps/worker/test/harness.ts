@@ -15,6 +15,8 @@ class Statement {
   ) {}
   bind(...params: unknown[]) {
     for (const p of params) if (p === undefined) throw new Error(`D1_TYPE_ERROR: undefined bound in ${this.sql}`);
+    // Real D1 rejects more than 100 bound parameters per statement.
+    if (params.length > 100) throw new Error(`D1_ERROR: too many SQL variables (${params.length})`);
     return new Statement(this.db, this.sql, params as SQLInputValue[]);
   }
   async first<T>(): Promise<T | null> {
@@ -28,7 +30,8 @@ class Statement {
   }
   exec() {
     const stmt = this.db.prepare(this.sql);
-    if (/\bRETURNING\b/i.test(this.sql)) {
+    // Like D1, batch results carry rows for queries and RETURNING statements.
+    if (/^\s*SELECT\b/i.test(this.sql) || /\bRETURNING\b/i.test(this.sql)) {
       const rows = stmt.all(...this.params);
       return { results: rows, success: true, meta: { changes: rows.length } };
     }

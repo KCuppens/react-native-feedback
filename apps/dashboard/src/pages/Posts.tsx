@@ -34,7 +34,7 @@ export function PostsPage({ projectId }: { projectId: string }) {
   return (
     <div className="stack">
       <div className="row filters">
-        <input type="search" placeholder="Search title or body…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input type="search" placeholder="Search title or body…" aria-label="Search posts" value={search} onChange={(e) => setSearch(e.target.value)} />
         <select value={moderation} onChange={(e) => setModeration(e.target.value as Moderation)} aria-label="Moderation">
           <option value="all">Any moderation</option>
           <option value="pending">Pending</option>

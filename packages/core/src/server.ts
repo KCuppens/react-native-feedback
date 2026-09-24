@@ -17,7 +17,8 @@ export interface FeedbackUserClaims {
 
 export const USER_TOKEN_MAX_AGE_SECONDS = 24 * 60 * 60;
 
-async function hmacHex(secret: string, message: string): Promise<string> {
+/** Hex HMAC-SHA256, e.g. for deriving keyed identifiers on your server. */
+export async function hmacHex(secret: string, message: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     'raw',
     textEncoder.encode(secret),

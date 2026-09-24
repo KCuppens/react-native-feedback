@@ -4,7 +4,6 @@ import { fail } from './util';
 
 export const LIMITS = {
   ...BOARD_LIMITS,
-  titleMin: 3,
   declineReasonMax: 500,
   postsPerHour: 10,
   commentsPerHour: 30,
@@ -88,8 +87,16 @@ export async function findProjectBySlug(env: Env, slug: string): Promise<Project
   return row ? toProject(row) : null;
 }
 
-export async function saveSettings(env: Env, projectId: string, settings: ProjectSettings): Promise<void> {
-  await env.DB.prepare('UPDATE projects SET settings = ? WHERE id = ?').bind(JSON.stringify(settings), projectId).run();
+/**
+ * Merge a patch into the stored settings in SQL, so concurrent toggles cannot
+ * overwrite each other with a stale copy. `null` values remove the key (json_patch),
+ * which parseSettings turns back into the default.
+ */
+export async function patchSettings(env: Env, projectId: string, patch: Partial<ProjectSettings>): Promise<ProjectSettings> {
+  const row = await env.DB.prepare('UPDATE projects SET settings = json_patch(settings, ?) WHERE id = ? RETURNING settings')
+    .bind(JSON.stringify(patch), projectId)
+    .first<{ settings: string }>();
+  return parseSettings(row?.settings ?? '{}');
 }
 
 export function toSummary(project: Project, pendingCount: number): ProjectSummary {

@@ -130,9 +130,9 @@ async function hydrate(env: Env, origin: string, rows: PostRow[], viewerId: stri
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const { results } = await env.DB.prepare(
-    `SELECT id, post_id, comment_id, mime, width, height, bytes FROM attachments WHERE post_id IN (${placeholders(ids.length)}) AND comment_id IS NULL ORDER BY created_at`,
+    `SELECT id, post_id, comment_id, mime, width, height, bytes FROM attachments WHERE post_id IN (SELECT value FROM json_each(?)) AND comment_id IS NULL ORDER BY created_at`,
   )
-    .bind(...ids)
+    .bind(JSON.stringify(ids))
     .all<AttachmentRow>();
   const byPost = groupAttachments(origin, results, (row) => row.post_id!);
   return rows.map((r) => toPost(r, viewerId, byPost.get(r.id) ?? []));
@@ -161,8 +161,8 @@ export async function getPostsByIds(
   viewerId: string | null,
 ): Promise<PostRecord[]> {
   if (ids.length === 0) return [];
-  const { results } = await env.DB.prepare(`${POST_SELECT} WHERE p.project_id = ? AND p.id IN (${placeholders(ids.length)})`)
-    .bind(viewerId ?? '', projectId, ...ids)
+  const { results } = await env.DB.prepare(`${POST_SELECT} WHERE p.project_id = ? AND p.id IN (SELECT value FROM json_each(?))`)
+    .bind(viewerId ?? '', projectId, JSON.stringify(ids))
     .all<PostRow>();
   const byId = new Map((await hydrate(env, origin, results, viewerId)).map((p) => [p.id, p]));
   return ids.map((id) => byId.get(id)).filter((p): p is PostRecord => !!p);
@@ -171,8 +171,8 @@ export async function getPostsByIds(
 export interface PostQuery {
   projectId: string;
   viewerId: string | null;
-  /** Public boards: approved posts plus the viewer's own. Admin: filter by moderation. */
-  visibility: { kind: 'public' } | { kind: 'admin'; moderation: Moderation | 'all' };
+  /** `approvedOrOwn`: public boards (approved posts plus the viewer's own). `byModeration`: an explicit moderation filter. */
+  visibility: { kind: 'approvedOrOwn' } | { kind: 'byModeration'; moderation: Moderation | 'all' };
   sort: PostSort;
   statuses?: PostStatus[];
   categoryId?: string;
@@ -197,7 +197,7 @@ export async function listPosts(env: Env, origin: string, query: PostQuery): Pro
   const where: string[] = ['p.project_id = ?'];
   const params: (string | number)[] = [query.projectId];
 
-  if (query.visibility.kind === 'public') {
+  if (query.visibility.kind === 'approvedOrOwn') {
     where.push("(p.moderation = 'approved' OR p.author_id = ?)");
     params.push(query.viewerId ?? '');
   } else if (query.visibility.moderation !== 'all') {
@@ -282,9 +282,9 @@ async function hydrateComments(env: Env, origin: string, rows: CommentRow[]): Pr
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const { results } = await env.DB.prepare(
-    `SELECT id, post_id, comment_id, mime, width, height, bytes FROM attachments WHERE comment_id IN (${placeholders(ids.length)}) ORDER BY created_at`,
+    `SELECT id, post_id, comment_id, mime, width, height, bytes FROM attachments WHERE comment_id IN (SELECT value FROM json_each(?)) ORDER BY created_at`,
   )
-    .bind(...ids)
+    .bind(JSON.stringify(ids))
     .all<AttachmentRow>();
   const byComment = groupAttachments(origin, results, (row) => row.comment_id!);
   return rows.map((r) => ({
@@ -343,8 +343,9 @@ export async function claimAttachments(
     .all<{ id: string }>();
   if (results.length !== ids.length) fail(400, 'invalid_attachments');
   return env.DB.prepare(
-    `UPDATE attachments SET post_id = ?, comment_id = ? WHERE id IN (${placeholders(ids.length)})`,
-  ).bind(target.postId, target.commentId ?? null, ...ids);
+    `UPDATE attachments SET post_id = ?, comment_id = ?
+     WHERE id IN (${placeholders(ids.length)}) AND project_id = ? AND uploader_id = ? AND post_id IS NULL AND comment_id IS NULL`,
+  ).bind(target.postId, target.commentId ?? null, ...ids, projectId, uploaderId);
 }
 
 /** R2 keys for everything attached to a post or its comments (for cleanup on delete). */

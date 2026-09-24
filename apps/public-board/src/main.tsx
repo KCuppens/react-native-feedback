@@ -1,5 +1,5 @@
-import { FeedbackBoard } from '@kobecuppens/react-feedback';
-import { StrictMode, useEffect, useState } from 'react';
+import { FeedbackBoard, matchLocale, resolveStrings } from '@kobecuppens/react-feedback';
+import { StrictMode, useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 interface PublicProject {
@@ -8,44 +8,70 @@ interface PublicProject {
   publicKey: string;
 }
 
+type LoadState = { kind: 'loading' } | { kind: 'ready'; project: PublicProject } | { kind: 'missing' } | { kind: 'failed' };
+
 const slug = window.location.pathname.replace(/^\/p\/?/, '').split('/')[0] ?? '';
 // Apps can link here with a signed token (?user=...) so votes count as that user.
 const params = new URLSearchParams(window.location.search);
 const userToken = params.get('user');
 if (userToken) window.history.replaceState(null, '', window.location.pathname);
+const locale = matchLocale(params.get('lang') ?? navigator.language);
+const strings = resolveStrings(locale);
+document.documentElement.lang = locale;
+
+const center = { fontFamily: 'system-ui, sans-serif', textAlign: 'center', padding: 48, color: '#52525b' } as const;
 
 function PublicBoard() {
-  const [project, setProject] = useState<PublicProject | null>(null);
-  const [error, setError] = useState(false);
+  const [state, setState] = useState<LoadState>({ kind: 'loading' });
 
-  useEffect(() => {
-    if (!slug) return setError(true);
+  const load = useCallback(() => {
+    if (!slug) return setState({ kind: 'missing' });
+    setState({ kind: 'loading' });
     fetch(`/v1/public/projects/${encodeURIComponent(slug)}`)
-      .then((r) => (r.ok ? (r.json() as Promise<PublicProject>) : Promise.reject(new Error(String(r.status)))))
-      .then((p) => {
-        setProject(p);
-        document.title = `${p.name} · Feedback`;
+      .then(async (r) => {
+        if (r.status === 404) return setState({ kind: 'missing' });
+        if (!r.ok) return setState({ kind: 'failed' });
+        const project = (await r.json()) as PublicProject;
+        document.title = `${project.name} · ${strings.tabs.board}`;
+        setState({ kind: 'ready', project });
       })
-      .catch(() => setError(true));
+      .catch(() => setState({ kind: 'failed' }));
   }, []);
 
-  if (error) {
-    return <p style={{ fontFamily: 'system-ui', textAlign: 'center', padding: 48, color: '#6b6b76' }}>This board doesn't exist or isn't public.</p>;
+  useEffect(load, [load]);
+
+  if (state.kind === 'loading') {
+    return (
+      <p style={center} role="status">
+        {strings.common.loading}
+      </p>
+    );
   }
-  if (!project) return null;
+  if (state.kind === 'missing') return <p style={center}>{strings.errors.boardNotFound}</p>;
+  if (state.kind === 'failed') {
+    return (
+      <div style={center} role="alert">
+        <p>{strings.errors.boardLoadFailed}</p>
+        <button type="button" onClick={load}>
+          {strings.errors.retry}
+        </button>
+      </div>
+    );
+  }
+  const { project } = state;
   return (
-    <div style={{ maxWidth: 820, margin: '0 auto', minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
+    <main style={{ maxWidth: 820, margin: '0 auto', minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
       <FeedbackBoard
         projectKey={project.publicKey}
         baseUrl={window.location.origin}
         userToken={userToken}
-        locale={params.get('lang') ?? undefined}
+        locale={locale}
         style={{ flex: 1 }}
         headerAccessory={
           <h1 style={{ margin: 0, padding: '20px 16px 8px', font: '700 22px var(--fb-font-heading)' }}>{project.name}</h1>
         }
       />
-    </div>
+    </main>
   );
 }
 

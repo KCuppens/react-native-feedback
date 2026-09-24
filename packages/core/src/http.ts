@@ -24,8 +24,8 @@ export async function parseResponse<T>(res: Response): Promise<T> {
     throw new FeedbackApiError(res.status, 'invalid_response', 'The server returned something that is not JSON.');
   }
   if (!res.ok) {
-    const err = (data ?? {}) as { error?: string; message?: string };
-    throw new FeedbackApiError(res.status, err.error ?? 'request_failed', err.message);
+    const err = (data ?? {}) as { error?: string; message?: string; field?: string; reason?: FeedbackApiError['reason'] };
+    throw new FeedbackApiError(res.status, err.error ?? 'request_failed', err.message, err.field, err.reason);
   }
   return data as T;
 }

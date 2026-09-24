@@ -6,6 +6,7 @@ import { createSessionCookieValue, requireDashboard, SESSION_COOKIE, SESSION_TTL
 import { findProjectById, LIMITS, slugify, toProject, toSummary } from '../projects';
 import {
   clientIp,
+  deleteFilesInBackground,
   fail,
   flag,
   generateProjectKeys,
@@ -22,6 +23,9 @@ export const dashboardRoutes = new Hono<AppEnv>();
 
 dashboardRoutes.use('*', async (c, next) => {
   if (!flag(c.env, 'FEATURE_DASHBOARD')) fail(404, 'not_found');
+  // Defence in depth next to SameSite=Strict: refuse state changes posted from another origin.
+  const origin = c.req.header('Origin');
+  if (c.req.method !== 'GET' && origin && origin !== new URL(c.req.url).origin) fail(403, 'forbidden');
   await next();
 });
 
@@ -111,9 +115,7 @@ dashboardRoutes.delete('/projects/:id', async (c) => {
   const { results } = await c.env.DB.prepare('SELECT r2_key FROM attachments WHERE project_id = ?').bind(id).all<{ r2_key: string }>();
   const res = await c.env.DB.prepare('DELETE FROM projects WHERE id = ?').bind(id).run();
   if (!res.meta.changes) fail(404, 'project_not_found');
-  for (let i = 0; i < results.length; i += 1000) {
-    await c.env.FILES.delete(results.slice(i, i + 1000).map((r) => r.r2_key));
-  }
+  deleteFilesInBackground(c, results.map((r) => r.r2_key), `project ${id}`);
   return c.body(null, 204);
 });
 

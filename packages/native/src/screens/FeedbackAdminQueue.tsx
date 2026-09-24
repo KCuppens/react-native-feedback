@@ -2,7 +2,7 @@ import type { Post } from '@kobecuppens/feedback-core';
 import { useAdminQueue, useModeration } from '@kobecuppens/feedback-core/react';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
-import { Button, EmptyState, ErrorState, Loading } from '../components';
+import { Button, EmptyState, ErrorState, InlineError, Loading } from '../components';
 import { useUI } from '../ui';
 
 export interface FeedbackAdminQueueProps {
@@ -38,8 +38,10 @@ function QueueItem({ post, onOpen }: { post: Post; onOpen: () => void }) {
   const m = useModeration();
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState('');
+  const failed = [m.approve, m.decline].find((mutation) => mutation.isError);
   return (
     <View style={[styles.card, { flexDirection: 'column' }]}>
+      <InlineError error={failed?.error} />
       <Pressable accessibilityRole="button" onPress={onOpen} style={{ gap: theme.spacing.xs }}>
         <Text style={styles.cardTitle}>{post.title}</Text>
         {post.body ? (
@@ -57,6 +59,7 @@ function QueueItem({ post, onOpen }: { post: Post; onOpen: () => void }) {
             placeholder={strings.admin.declineReasonPlaceholder}
             placeholderTextColor={theme.colors.textMuted}
             style={styles.input}
+            accessibilityLabel={strings.admin.declineReasonPlaceholder}
           />
           <View style={styles.adminRow}>
             <Button
