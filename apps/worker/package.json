@@ -13,8 +13,7 @@
   },
   "dependencies": {
     "@kobecuppens/feedback-core": "0.1.0",
-    "hono": "^4.9.6",
-    "jose": "^6.0.11"
+    "hono": "^4.9.6"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250920.0",

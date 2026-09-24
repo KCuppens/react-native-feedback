@@ -2,10 +2,9 @@ import { hmacHex, verifyFeedbackUser } from '@kobecuppens/feedback-core/server';
 import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { createMiddleware } from 'hono/factory';
-import { jwtVerify, SignJWT } from 'jose';
 import type { AppEnv, EndUserRow, Env, Identity, Project } from './env';
 import { findProjectById, findProjectByPublicKey, findProjectBySecretHash } from './projects';
-import { assertSameOrigin, fail, flag, newId, now, sha256Hex } from './util';
+import { assertSameOrigin, fail, flag, newId, now, sha256Hex, timingSafeEqualString } from './util';
 
 export const SESSION_COOKIE = 'fb_session';
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -152,12 +151,26 @@ function passwordVersion(env: Env): Promise<string> {
   return pwvCache.value;
 }
 
-export async function createSessionCookieValue(env: Env): Promise<string> {
-  return new SignJWT({ role: 'superadmin', pwv: await passwordVersion(env) })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime(`${SESSION_TTL_SECONDS}s`)
-    .sign(sessionKey(env));
+/**
+ * The superadmin session cookie: `v1.<issued-at seconds>.<password version>.<HMAC>`, signed
+ * with SESSION_SECRET. A dedicated `session:` prefix keeps it apart from other HMACs made
+ * with the same secret (the password version).
+ */
+export async function createSessionCookieValue(env: Env, nowMs = now()): Promise<string> {
+  const claims = `v1.${Math.floor(nowMs / 1000)}.${await passwordVersion(env)}`;
+  return `${claims}.${await hmacHex(sessionSecret(env), `session:${claims}`)}`;
+}
+
+async function verifySessionCookieValue(env: Env, token: string, nowMs = now()): Promise<boolean> {
+  const parts = token.split('.');
+  if (parts.length !== 4 || parts[0] !== 'v1') return false;
+  const [, iat, pwv, signature] = parts as [string, string, string, string];
+  const claims = `v1.${iat}.${pwv}`;
+  if (!timingSafeEqualString(signature, await hmacHex(sessionSecret(env), `session:${claims}`))) return false;
+  const issued = Number(iat);
+  if (!Number.isInteger(issued) || nowMs / 1000 - issued > SESSION_TTL_SECONDS || issued > nowMs / 1000 + 60) return false;
+  // A changed ADMIN_PASSWORD invalidates every existing session.
+  return pwv === (await passwordVersion(env));
 }
 
 function sessionSecret(env: Env): string {
@@ -165,20 +178,11 @@ function sessionSecret(env: Env): string {
   return env.SESSION_SECRET;
 }
 
-function sessionKey(env: Env): Uint8Array {
-  return new TextEncoder().encode(sessionSecret(env));
-}
-
 async function hasDashboardSession(c: Context<AppEnv>): Promise<boolean> {
   if (!flag(c.env, 'FEATURE_DASHBOARD')) return false;
   const token = getCookie(c, SESSION_COOKIE);
   if (!token) return false;
-  try {
-    const { payload } = await jwtVerify(token, sessionKey(c.env), { algorithms: ['HS256'] });
-    return payload.role === 'superadmin' && payload.pwv === (await passwordVersion(c.env));
-  } catch {
-    return false;
-  }
+  return verifySessionCookieValue(c.env, token);
 }
 
 export const requireDashboard = createMiddleware<AppEnv>(async (c, next) => {

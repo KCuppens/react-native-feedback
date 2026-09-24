@@ -7,9 +7,10 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "@kobecuppens/react-native-feedback": "file:../../packages/native",
     "@kobecuppens/feedback-core": "file:../../packages/core",
+    "@kobecuppens/react-native-feedback": "file:../../packages/native",
     "@react-native-async-storage/async-storage": "*",
+    "@tanstack/react-query": "^5.90.0",
     "expo": "~57.0.0",
     "expo-image-picker": "*",
     "react": "*",

@@ -347,13 +347,18 @@ publicRoutes.get('/me/updates', async (c) => {
   const viewer = await getViewer(c);
   if (!viewer) return c.json({ unseen: 0, items: [] } satisfies Updates);
   const since = now() - 90 * 86_400_000;
-  // Posts the viewer wrote or voted on that changed recently.
+  // Posts the viewer wrote or voted on that changed recently. Driven from the viewer's own
+  // (small) set via posts_author and votes_user, not a scan of every post in the project.
   const { results } = await c.env.DB.prepare(
-    `SELECT id FROM posts
-     WHERE project_id = ?3 AND merged_into_id IS NULL
-       AND (author_id = ?1 OR id IN (SELECT post_id FROM votes WHERE user_id = ?1))
-       AND (status_changed_at > ?2 OR moderated_at > ?2 OR last_official_reply_at > ?2)
-     ORDER BY MAX(COALESCE(status_changed_at, 0), COALESCE(moderated_at, 0), COALESCE(last_official_reply_at, 0)) DESC
+    `WITH mine AS (
+       SELECT id FROM posts WHERE author_id = ?1
+       UNION
+       SELECT post_id FROM votes WHERE user_id = ?1
+     )
+     SELECT p.id FROM mine JOIN posts p ON p.id = mine.id
+     WHERE p.project_id = ?3 AND p.merged_into_id IS NULL
+       AND (p.status_changed_at > ?2 OR p.moderated_at > ?2 OR p.last_official_reply_at > ?2)
+     ORDER BY MAX(COALESCE(p.status_changed_at, 0), COALESCE(p.moderated_at, 0), COALESCE(p.last_official_reply_at, 0)) DESC
      LIMIT 50`,
   )
     .bind(viewer.id, since, c.get('project').id)

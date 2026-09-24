@@ -15,8 +15,10 @@ A drop-in feedback & roadmap board for all your apps. Users submit ideas and bug
 ## Add it to an app
 
 ```bash
-npx expo install @kobecuppens/react-native-feedback @react-native-async-storage/async-storage expo-image-picker
+npx expo install @kobecuppens/react-native-feedback @tanstack/react-query @react-native-async-storage/async-storage expo-image-picker
 ```
+
+`@tanstack/react-query` (v5) is a peer dependency, so the board shares your app's copy instead of bundling a second one. It uses its own `QueryClient` unless you pass `queryClient`.
 
 ```tsx
 import { FeedbackBoard } from '@kobecuppens/react-native-feedback';
@@ -32,7 +34,7 @@ export function FeedbackScreen() {
 }
 ```
 
-On the web:
+On the web (`npm install @kobecuppens/react-feedback @tanstack/react-query`):
 
 ```tsx
 import { FeedbackBoard } from '@kobecuppens/react-feedback'; // styles are injected automatically
@@ -129,7 +131,7 @@ cd apps/worker && npm run project:create -- --name "1% Better" --remote --env pr
 
 ## Webhooks
 
-Configure per project in the dashboard or `POST /v1/admin/webhooks`. Events: `post.created`, `post.approved`, `post.declined`, `post.status_changed`, `post.merged`, `post.deleted`, `comment.created`. Verify with `verifyWebhook(secret, rawBody, req.headers['x-feedback-signature'])` from `@kobecuppens/feedback-core/server`. Use this to send your own push notifications.
+Configure per project in the dashboard or `POST /v1/admin/webhooks` (up to 10 per project). Events: `post.created`, `post.approved`, `post.declined`, `post.status_changed`, `post.merged`, `post.deleted`, `comment.created`. Verify with `verifyWebhook(secret, rawBody, req.headers['x-feedback-signature'])` from `@kobecuppens/feedback-core/server`. Use this to send your own push notifications.
 
 **Delivery.** The worker claims each event once and never redelivers it later. If your endpoint times out (10s), fails at the network level, or answers 5xx/408/429, it is retried once after 1–2s; other 4xx answers are not retried. A timed-out request may still have reached you, so **always deduplicate on `id`**. Answer `2xx` quickly and do heavy work asynchronously.
 

@@ -311,9 +311,10 @@ function toComment(r: CommentRow, attachments: Attachment[]): Comment {
   };
 }
 
+// Ties on created_at (same millisecond) fall back to insertion order, not the random id.
 export async function listComments(env: Env, origin: string, postId: string, offset: number, limit: number): Promise<Page<Comment>> {
   const { results } = await env.DB.prepare(
-    `${COMMENT_SELECT} WHERE cm.post_id = ? AND cm.deleted_at IS NULL ORDER BY cm.created_at ASC, cm.id ASC LIMIT ? OFFSET ?`,
+    `${COMMENT_SELECT} WHERE cm.post_id = ? AND cm.deleted_at IS NULL ORDER BY cm.created_at ASC, cm.rowid ASC LIMIT ? OFFSET ?`,
   )
     .bind(postId, limit + 1, offset)
     .all<CommentRow>();

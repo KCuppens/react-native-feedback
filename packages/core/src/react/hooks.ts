@@ -95,6 +95,18 @@ export function updateCachedPost(client: QueryClient, scope: string, postId: str
   );
 }
 
+/**
+ * Refetch lists after a change that can move posts around (a new post, a moderation
+ * decision). Infinite queries refetch every loaded page one after another, so trim them to
+ * their first page first: one request instead of one per page scrolled.
+ */
+function refetchFromFirstPage(client: QueryClient, queryKey: readonly unknown[]) {
+  client.setQueriesData<InfiniteData<Page<Post>>>({ queryKey }, (data) =>
+    data && data.pages.length > 1 ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data,
+  );
+  void client.invalidateQueries({ queryKey });
+}
+
 export function useVote() {
   const { adapter, scope, onEvent } = useFeedbackContext();
   const client = useQueryClient();
@@ -140,8 +152,8 @@ export function useCreatePost() {
     mutationFn: (input: CreatePostInput) => adapter.createPost(input),
     onSuccess: (post) => {
       client.setQueryData(feedbackKeys.post(scope, post.id), post);
-      void client.invalidateQueries({ queryKey: feedbackKeys.postsPrefix(scope) });
-      void client.invalidateQueries({ queryKey: feedbackKeys.queue(scope) });
+      refetchFromFirstPage(client, feedbackKeys.postsPrefix(scope));
+      refetchFromFirstPage(client, feedbackKeys.queue(scope));
       onEvent({ type: 'post_created', post });
     },
     onError: (error) => onEvent({ type: 'error', error }),
@@ -239,8 +251,8 @@ export function useModeration() {
 
   const refresh = (post?: Post) => {
     if (post) updateCachedPost(client, scope, post.id, () => post);
-    void client.invalidateQueries({ queryKey: feedbackKeys.postsPrefix(scope) });
-    void client.invalidateQueries({ queryKey: feedbackKeys.queue(scope) });
+    refetchFromFirstPage(client, feedbackKeys.postsPrefix(scope));
+    refetchFromFirstPage(client, feedbackKeys.queue(scope));
     void client.invalidateQueries({ queryKey: feedbackKeys.roadmap(scope) });
   };
   const need = () => {

@@ -118,6 +118,23 @@ describe('posts and votes', () => {
     await waitFor(() => expect(result.current.one.data?.title).toBe('Idea 3'));
   });
 
+  it('refetches only the first page of a scrolled list after creating a post', async () => {
+    const { wrapper, adapter } = setup({
+      posts: Array.from({ length: 45 }, (_, i) => ({ id: `p${i}`, title: `Idea ${i}`, score: 100 - i })),
+    });
+    const listPosts = vi.spyOn(adapter, 'listPosts');
+    const { result } = renderHook(() => ({ list: usePosts({ sort: 'top' }), create: useCreatePost() }), { wrapper });
+    await waitFor(() => expect(result.current.list.data?.pages).toHaveLength(1));
+    await act(() => result.current.list.fetchNextPage());
+    await act(() => result.current.list.fetchNextPage());
+    await waitFor(() => expect(result.current.list.data?.pages).toHaveLength(3));
+    listPosts.mockClear();
+    await act(() => result.current.create.mutateAsync({ title: 'Fresh idea', body: '' }));
+    await waitFor(() => expect(result.current.list.isFetching).toBe(false));
+    expect(listPosts).toHaveBeenCalledTimes(1);
+    expect(result.current.list.data?.pages).toHaveLength(1);
+  });
+
   it('applies a vote to every cached copy and reports it', async () => {
     const { wrapper, onEvent } = setup(seeded());
     const { result } = renderHook(() => ({ list: usePosts(), one: usePost('p1'), roadmap: useRoadmap(), vote: useVote() }), { wrapper });

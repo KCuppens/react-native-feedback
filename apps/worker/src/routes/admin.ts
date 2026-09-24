@@ -425,9 +425,16 @@ config.post('/webhooks', async (c) => {
     events: JSON.stringify([...new Set(events)]),
     created_at: now(),
   };
-  await c.env.DB.prepare('INSERT INTO webhooks (id, project_id, url, secret, events, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(row.id, c.get('project').id, row.url, row.secret, row.events, row.created_at)
+  // The count check is part of the insert, so concurrent creates cannot overshoot the cap.
+  const inserted = await c.env.DB.prepare(
+    `INSERT INTO webhooks (id, project_id, url, secret, events, created_at)
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE (SELECT COUNT(*) FROM webhooks WHERE project_id = ?2) < ?7`,
+  )
+    .bind(row.id, c.get('project').id, row.url, row.secret, row.events, row.created_at, LIMITS.webhooksPerProject)
     .run();
+  if (!inserted.meta.changes) {
+    fail(400, 'too_many_webhooks', `A project can have at most ${LIMITS.webhooksPerProject} webhooks. Remove one first.`);
+  }
   return c.json(toWebhookConfig(row), 201);
 });
 

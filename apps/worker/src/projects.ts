@@ -5,6 +5,8 @@ import { fail } from './util';
 export const LIMITS = {
   ...BOARD_LIMITS,
   declineReasonMax: 500,
+  /** Bounds each event's delivery fan-out (see handleEventBatch). */
+  webhooksPerProject: 10,
   postsPerHour: 10,
   commentsPerHour: 30,
   uploadsPerHour: 30,

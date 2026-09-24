@@ -10,6 +10,7 @@
   "dependencies": {
     "@kobecuppens/feedback-core": "0.1.0",
     "@kobecuppens/react-feedback": "0.1.0",
+    "@tanstack/react-query": "^5.90.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
