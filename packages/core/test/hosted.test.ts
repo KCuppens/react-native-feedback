@@ -102,7 +102,9 @@ describe('createHostedAdapter', () => {
     const adapter = createHostedAdapter({ projectKey: 'pk', baseUrl: 'https://a', storage, fetch });
     await adapter.getConfig();
     await adapter.getConfig();
-    const ids = fetch.mock.calls.map((c) => ((c as unknown as [string, RequestInit])[1].headers as Record<string, string>)['X-Feedback-Anon']);
+    const ids = fetch.mock.calls.map(
+      (c) => ((c as unknown as [string, RequestInit])[1].headers as Record<string, string>)['X-Feedback-Anon'],
+    );
     expect(ids[0]).toBeDefined();
     expect(ids[1]).toBe(ids[0]);
   });
@@ -114,9 +116,51 @@ describe('createHostedAdapter', () => {
   });
 });
 
+describe('identity changes', () => {
+  const token = (id: string, n: number) => `${btoa(JSON.stringify({ id, iat: n })).replace(/=+$/, '')}.sig${n}`;
+
+  it('notifies on sign-in, account switch and sign-out, but not on a refresh for the same user', async () => {
+    const expired = new Set<string>();
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      const user = (init.headers as Record<string, string>)['X-Feedback-User'];
+      return user && expired.has(user) ? jsonResponse(401, { error: 'user_token_expired' }) : jsonResponse(200, {});
+    });
+    const sequence = [null, token('ann', 1), token('ann', 2), token('bob', 3), null];
+    let i = 0;
+    const getUserToken = vi.fn(async () => sequence[i++] ?? null);
+    const adapter = createHostedAdapter({
+      projectKey: 'pk',
+      baseUrl: 'https://a',
+      getUserToken,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+    const changed = vi.fn();
+    adapter.subscribeIdentity!(changed);
+    const expireCurrent = () => expired.add(sequence[i - 1]!);
+
+    await adapter.getConfig(); // anonymous
+    expect(changed).toHaveBeenCalledTimes(0);
+    await adapter.getConfig(); // ann signs in
+    expect(changed).toHaveBeenCalledTimes(1);
+    expireCurrent();
+    await adapter.getConfig(); // ann's token refreshed: same user
+    expect(changed).toHaveBeenCalledTimes(1);
+    expireCurrent();
+    await adapter.getConfig(); // switched to bob
+    expect(changed).toHaveBeenCalledTimes(2);
+    expireCurrent();
+    await adapter.getConfig(); // signed out
+    expect(changed).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe('createMemoryAdapter', () => {
   it('404s instead of deleting another post when the id is unknown', async () => {
-    const adapter = createMemoryAdapter({ settings: { inAppAdmin: true }, viewer: { id: 'boss', isAdmin: true }, posts: [{ title: 'Keep me' }] });
+    const adapter = createMemoryAdapter({
+      settings: { inAppAdmin: true },
+      viewer: { id: 'boss', isAdmin: true },
+      posts: [{ title: 'Keep me' }],
+    });
     await expect(adapter.admin!.deletePost('nope')).rejects.toMatchObject({ status: 404 });
     expect(adapter.posts.map((p) => p.title)).toEqual(['Keep me']);
   });

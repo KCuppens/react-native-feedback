@@ -1,6 +1,6 @@
 // Monorepo setup: watch the workspace packages and resolve them from source.
 const { getDefaultConfig } = require('expo/metro-config');
-const path = require('path');
+const path = require('node:path');
 
 const projectRoot = __dirname;
 const workspaceRoot = path.resolve(projectRoot, '../..');

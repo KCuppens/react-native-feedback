@@ -19,7 +19,10 @@ const json = async <T>(res: Response | Promise<Response>, status = 200): Promise
 const admin = () => ({ Authorization: `Bearer ${h.project.secretKey}` });
 
 async function createPost(who: Parameters<Harness['as']>[0], title = 'Dark mode please', extra: Record<string, unknown> = {}) {
-  return json<Post>(h.request('/v1/posts', { method: 'POST', headers: await h.as(who), json: { title, body: 'It hurts my eyes', ...extra } }), 201);
+  return json<Post>(
+    h.request('/v1/posts', { method: 'POST', headers: await h.as(who), json: { title, body: 'It hurts my eyes', ...extra } }),
+    201,
+  );
 }
 
 async function approve(id: string) {
@@ -44,7 +47,11 @@ describe('identity', () => {
     const read = await h.request('/v1/config', { headers: { ...headers, 'X-Feedback-User': old } });
     expect(read.status).toBe(200);
     expect(((await read.json()) as { viewer: { identified: boolean } }).viewer.identified).toBe(false);
-    const res = await h.request('/v1/posts', { method: 'POST', headers: { ...headers, 'X-Feedback-User': old }, json: { title: 'Hello there' } });
+    const res = await h.request('/v1/posts', {
+      method: 'POST',
+      headers: { ...headers, 'X-Feedback-User': old },
+      json: { title: 'Hello there' },
+    });
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ error: 'user_token_expired' });
 
@@ -70,7 +77,11 @@ describe('identity', () => {
 
   it('blocks anonymous posting when the project disallows it', async () => {
     h.setSettings({ allowAnonymous: false });
-    const res = await h.request('/v1/posts', { method: 'POST', headers: await h.as({ anon: 'device-1234' }), json: { title: 'Hello there' } });
+    const res = await h.request('/v1/posts', {
+      method: 'POST',
+      headers: await h.as({ anon: 'device-1234' }),
+      json: { title: 'Hello there' },
+    });
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ error: 'identity_required' });
   });
@@ -268,7 +279,9 @@ describe('admin surfaces and flags', () => {
     const target = await createPost({ user: 'alice' }, 'Dark mode');
     const dupe = await createPost({ user: 'bob' }, 'Night theme');
     await h.request(`/v1/posts/${dupe.id}/vote`, { method: 'POST', headers: await h.as({ user: 'carol' }), json: { value: 1 } });
-    const merged = await json<Post>(h.request(`/v1/admin/posts/${dupe.id}/merge`, { method: 'POST', headers: admin(), json: { intoId: target.id } }));
+    const merged = await json<Post>(
+      h.request(`/v1/admin/posts/${dupe.id}/merge`, { method: 'POST', headers: admin(), json: { intoId: target.id } }),
+    );
     expect(merged.upvotes).toBe(3);
     const list = await json<Page<Post>>(h.request('/v1/posts', { headers: await h.as({}) }));
     expect(list.items.map((p) => p.id)).toEqual([target.id]);
@@ -278,7 +291,10 @@ describe('admin surfaces and flags', () => {
 
   it('manages categories and filters by them', async () => {
     h.setSettings({ autoApprove: true });
-    const bug = await json<{ id: string }>(h.request('/v1/admin/categories', { method: 'POST', headers: admin(), json: { name: 'Bug', color: '#f00' } }), 201);
+    const bug = await json<{ id: string }>(
+      h.request('/v1/admin/categories', { method: 'POST', headers: admin(), json: { name: 'Bug', color: '#f00' } }),
+      201,
+    );
     await createPost({ user: 'alice' }, 'Crash on launch', { categoryId: bug.id });
     await createPost({ user: 'alice' }, 'Dark mode');
     const config = await json<BoardConfig>(h.request('/v1/config', { headers: await h.as({}) }));
@@ -331,7 +347,11 @@ describe('comments, roadmap and updates', () => {
   it('honours comment and roadmap switches', async () => {
     h.setSettings({ autoApprove: true, allowComments: false, roadmapEnabled: false });
     const post = await createPost({ user: 'alice' });
-    const res = await h.request(`/v1/posts/${post.id}/comments`, { method: 'POST', headers: await h.as({ user: 'bob' }), json: { body: 'hi' } });
+    const res = await h.request(`/v1/posts/${post.id}/comments`, {
+      method: 'POST',
+      headers: await h.as({ user: 'bob' }),
+      json: { body: 'hi' },
+    });
     expect(res.status).toBe(403);
     expect((await h.request('/v1/roadmap', { headers: await h.as({}) })).status).toBe(404);
   });
@@ -368,7 +388,10 @@ describe('uploads', () => {
     const big = new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'big.png', { type: 'image/png' });
     expect((await upload(alice, big)).status).toBe(413);
 
-    const bobFile = await json<{ id: string }>(await upload(await h.as({ user: 'bob' }), new File(['x'], 'a.png', { type: 'image/png' })), 201);
+    const bobFile = await json<{ id: string }>(
+      await upload(await h.as({ user: 'bob' }), new File(['x'], 'a.png', { type: 'image/png' })),
+      201,
+    );
     const res = await h.request('/v1/posts', { method: 'POST', headers: alice, json: { title: 'Stealing', attachmentIds: [bobFile.id] } });
     expect(res.status).toBe(400);
 
@@ -385,7 +408,11 @@ describe('webhooks', () => {
       return new Response('ok');
     });
     const hook = await json<WebhookConfig>(
-      h.request('/v1/admin/webhooks', { method: 'POST', headers: admin(), json: { url: 'https://hooks.test/in', events: ['post.approved'] } }),
+      h.request('/v1/admin/webhooks', {
+        method: 'POST',
+        headers: admin(),
+        json: { url: 'https://hooks.test/in', events: ['post.approved'] },
+      }),
       201,
     );
     const post = await createPost({ user: 'alice' });
@@ -397,6 +424,9 @@ describe('webhooks', () => {
     expect(await verifyWebhook(hook.secret, call.body, call.headers.get('X-Feedback-Signature')!)).toBe(true);
     expect(JSON.parse(call.body)).toMatchObject({ type: 'post.approved', data: { post: { id: post.id, moderation: 'approved' } } });
 
-    expect((await h.request('/v1/admin/webhooks', { method: 'POST', headers: admin(), json: { url: 'https://x.test', events: ['nope'] } })).status).toBe(400);
+    expect(
+      (await h.request('/v1/admin/webhooks', { method: 'POST', headers: admin(), json: { url: 'https://x.test', events: ['nope'] } }))
+        .status,
+    ).toBe(400);
   });
 });

@@ -56,7 +56,8 @@ describe('admin post management', () => {
     await json(h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: admin(), json: { status: 'open' } }));
     expect(h.db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'post.status_changed'").get()).toEqual({ n: 0 });
 
-    const bad = (patch: Record<string, unknown>) => h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: admin(), json: patch });
+    const bad = (patch: Record<string, unknown>) =>
+      h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: admin(), json: patch });
     expect((await bad({ status: 'shipped' })).status).toBe(400);
     expect((await bad({ status: 3 })).status).toBe(400);
     expect((await bad({ title: 'x' })).status).toBe(400);
@@ -77,7 +78,10 @@ describe('admin post management', () => {
 
   it('lists comments for any post, including pending ones, and 404s deleted comments', async () => {
     const post = await createPost('alice', 'Pending with reply');
-    const reply = await json<Comment>(h.request(`/v1/admin/posts/${post.id}/comments`, { method: 'POST', headers: admin(), json: { body: 'Looking' } }), 201);
+    const reply = await json<Comment>(
+      h.request(`/v1/admin/posts/${post.id}/comments`, { method: 'POST', headers: admin(), json: { body: 'Looking' } }),
+      201,
+    );
     const list = await json<Page<Comment>>(h.request(`/v1/admin/posts/${post.id}/comments`, { headers: admin() }));
     expect(list.items.map((c) => c.body)).toEqual(['Looking']);
     const del = () => h.request(`/v1/admin/posts/${post.id}/comments/${reply.id}`, { method: 'DELETE', headers: admin() });
@@ -89,11 +93,20 @@ describe('admin post management', () => {
 describe('project configuration', () => {
   it('updates categories and validates input', async () => {
     const cat = await json<Category>(h.request('/v1/admin/categories', { method: 'POST', headers: admin(), json: { name: 'Bug' } }), 201);
-    const second = await json<Category>(h.request('/v1/admin/categories', { method: 'POST', headers: admin(), json: { name: 'Idea' } }), 201);
+    const second = await json<Category>(
+      h.request('/v1/admin/categories', { method: 'POST', headers: admin(), json: { name: 'Idea' } }),
+      201,
+    );
     expect([cat.sort, second.sort]).toEqual([0, 1]);
 
-    const patch = (id: string, body: Record<string, unknown>) => h.request(`/v1/admin/categories/${id}`, { method: 'PATCH', headers: admin(), json: body });
-    expect(await json<Category>(patch(cat.id, { name: 'Bugs', color: '#ff0000', sort: 5 }))).toEqual({ id: cat.id, name: 'Bugs', color: '#ff0000', sort: 5 });
+    const patch = (id: string, body: Record<string, unknown>) =>
+      h.request(`/v1/admin/categories/${id}`, { method: 'PATCH', headers: admin(), json: body });
+    expect(await json<Category>(patch(cat.id, { name: 'Bugs', color: '#ff0000', sort: 5 }))).toEqual({
+      id: cat.id,
+      name: 'Bugs',
+      color: '#ff0000',
+      sort: 5,
+    });
     expect(await json<Category>(patch(cat.id, { color: null }))).toMatchObject({ name: 'Bugs', color: null, sort: 5 });
     expect((await patch(cat.id, { sort: 1.5 })).status).toBe(400);
     expect((await patch(cat.id, { name: '' })).status).toBe(400);
@@ -120,7 +133,11 @@ describe('project configuration', () => {
 
   it('requires https webhooks in production', async () => {
     h = await createHarness({ ENVIRONMENT: 'production' });
-    const res = await h.request('/v1/admin/webhooks', { method: 'POST', headers: admin(), json: { url: 'http://hooks.test/in', events: ['post.created'] } });
+    const res = await h.request('/v1/admin/webhooks', {
+      method: 'POST',
+      headers: admin(),
+      json: { url: 'http://hooks.test/in', events: ['post.created'] },
+    });
     expect(res.status).toBe(400);
   });
 
@@ -158,7 +175,10 @@ describe('dashboard project management', () => {
     expect(signing.signingSecret).not.toBe(h.project.signingSecret);
     expect((await rotate('everything')).status).toBe(400);
     expect((await h.request('/v1/dashboard/projects/nope/secrets', { headers: { Cookie: cookie } })).status).toBe(404);
-    expect((await h.request('/v1/dashboard/projects/nope/rotate', { method: 'POST', headers: { Cookie: cookie }, json: { key: 'public' } })).status).toBe(404);
+    expect(
+      (await h.request('/v1/dashboard/projects/nope/rotate', { method: 'POST', headers: { Cookie: cookie }, json: { key: 'public' } }))
+        .status,
+    ).toBe(404);
   });
 
   it('renames projects and guards slugs', async () => {
@@ -204,7 +224,7 @@ describe('worker entry', () => {
     const preflight = await h.request('/v1/posts', { method: 'OPTIONS' });
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get('Access-Control-Allow-Headers')).toContain('X-Feedback-User');
-    expect(await json(h.request('/v1/health'))).toEqual({ ok: true });
+    expect(await json(h.request('/v1/health'))).toMatchObject({ ok: true, status: 'healthy', checks: { db: 'ok' } });
     const dash = await h.request('/v1/dashboard/me');
     expect(dash.headers.get('Access-Control-Allow-Origin')).toBeNull();
     const err = await h.request('/v1/config');
@@ -214,11 +234,11 @@ describe('worker entry', () => {
 
   it('404s unknown files and routes', async () => {
     expect((await h.request('/v1/files/nope')).status).toBe(404);
+    h.db.prepare("INSERT INTO end_users (id, project_id, external_id, created_at) VALUES ('u1', ?, 'x', 0)").run(h.project.id);
     h.db
-      .prepare("INSERT INTO end_users (id, project_id, external_id, created_at) VALUES ('u1', ?, 'x', 0)")
-      .run(h.project.id);
-    h.db
-      .prepare("INSERT INTO attachments (id, project_id, uploader_id, r2_key, mime, bytes, created_at) VALUES ('a1', ?, 'u1', 'gone', 'image/png', 1, 0)")
+      .prepare(
+        "INSERT INTO attachments (id, project_id, uploader_id, r2_key, mime, bytes, created_at) VALUES ('a1', ?, 'u1', 'gone', 'image/png', 1, 0)",
+      )
       .run(h.project.id);
     expect((await h.request('/v1/files/a1')).status).toBe(404);
     expect(await json(h.request('/nowhere'), 404)).toEqual({ error: 'not_found', message: 'not_found' });
@@ -251,9 +271,20 @@ describe('worker entry', () => {
   });
 
   it('returns a generic 500 for unexpected errors', async () => {
-    const broken = { ...h.env, DB: { prepare: () => { throw new Error('boom'); } } as unknown as D1Database };
+    const broken = {
+      ...h.env,
+      DB: {
+        prepare: () => {
+          throw new Error('boom');
+        },
+      } as unknown as D1Database,
+    };
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    const res = await worker.fetch(new Request('https://feedback.test/v1/config', { headers: { 'X-Feedback-Key': 'pk_x' } }), broken, {} as ExecutionContext);
+    const res = await worker.fetch(
+      new Request('https://feedback.test/v1/config', { headers: { 'X-Feedback-Key': 'pk_x' } }),
+      broken,
+      {} as ExecutionContext,
+    );
     expect(res.status).toBe(500);
     const body = (await res.json()) as { requestId: string };
     expect(body).toMatchObject({ error: 'internal_error', message: 'Something went wrong' });
@@ -262,7 +293,9 @@ describe('worker entry', () => {
 
   it('wires the queue consumer and the hourly cron', async () => {
     const waits: Promise<unknown>[] = [];
-    await worker.scheduled({} as ScheduledController, h.env, { waitUntil: (p: Promise<unknown>) => waits.push(p) } as unknown as ExecutionContext);
+    await worker.scheduled({} as ScheduledController, h.env, {
+      waitUntil: (p: Promise<unknown>) => waits.push(p),
+    } as unknown as ExecutionContext);
     expect(waits).toHaveLength(1);
     await waits[0];
 

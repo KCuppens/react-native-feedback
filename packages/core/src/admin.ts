@@ -67,13 +67,11 @@ export function createAdminClient(options: AdminClientOptions) {
     merge: (id: string, intoId: string) => request<Post>('POST', `/v1/admin/posts/${id}/merge`, { intoId }, projectId),
     listComments: (postId: string, cursor?: string | null) =>
       request<Page<Comment>>('GET', `/v1/admin/posts/${postId}/comments${q({ cursor })}`, undefined, projectId),
-    reply: (postId: string, body: string) =>
-      request<Comment>('POST', `/v1/admin/posts/${postId}/comments`, { body }, projectId),
+    reply: (postId: string, body: string) => request<Comment>('POST', `/v1/admin/posts/${postId}/comments`, { body }, projectId),
     deleteComment: (postId: string, commentId: string) =>
       request<void>('DELETE', `/v1/admin/posts/${postId}/comments/${commentId}`, undefined, projectId),
     listCategories: () => request<Category[]>('GET', '/v1/admin/categories', undefined, projectId),
-    createCategory: (input: { name: string; color?: string | null }) =>
-      request<Category>('POST', '/v1/admin/categories', input, projectId),
+    createCategory: (input: { name: string; color?: string | null }) => request<Category>('POST', '/v1/admin/categories', input, projectId),
     updateCategory: (id: string, input: { name?: string; color?: string | null; sort?: number }) =>
       request<Category>('PATCH', `/v1/admin/categories/${id}`, input, projectId),
     deleteCategory: (id: string) => request<void>('DELETE', `/v1/admin/categories/${id}`, undefined, projectId),
@@ -82,8 +80,7 @@ export function createAdminClient(options: AdminClientOptions) {
       request<WebhookConfig>('POST', '/v1/admin/webhooks', input, projectId),
     deleteWebhook: (id: string) => request<void>('DELETE', `/v1/admin/webhooks/${id}`, undefined, projectId),
     getSettings: () => request<ProjectSettings>('GET', '/v1/admin/settings', undefined, projectId),
-    updateSettings: (patch: Partial<ProjectSettings>) =>
-      request<ProjectSettings>('PATCH', '/v1/admin/settings', patch, projectId),
+    updateSettings: (patch: Partial<ProjectSettings>) => request<ProjectSettings>('PATCH', '/v1/admin/settings', patch, projectId),
   });
 
   return {

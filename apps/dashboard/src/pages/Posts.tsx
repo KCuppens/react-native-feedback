@@ -21,6 +21,7 @@ export function PostsPage({ projectId }: { projectId: string }) {
     const id = setTimeout(() => setQ(search.trim()), 300);
     return () => clearTimeout(id);
   }, [search]);
+  // Intentional dependencies: the filters are the trigger: any change returns to the first page
   useEffect(() => setPage(null), [moderation, status, q]);
 
   const params = { moderation, status: status || undefined, q: q || undefined, cursor: page, sort: 'new' as const, limit: 50 };
@@ -34,7 +35,13 @@ export function PostsPage({ projectId }: { projectId: string }) {
   return (
     <div className="stack">
       <div className="row filters">
-        <input type="search" placeholder="Search title or body…" aria-label="Search posts" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input
+          type="search"
+          placeholder="Search title or body…"
+          aria-label="Search posts"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
         <select value={moderation} onChange={(e) => setModeration(e.target.value as Moderation)} aria-label="Moderation">
           <option value="all">Any moderation</option>
           <option value="pending">Pending</option>
@@ -80,7 +87,10 @@ export function PostsPage({ projectId }: { projectId: string }) {
                   </td>
                   <td className="num">
                     {post.score}
-                    <span className="muted small"> (+{post.upvotes}/−{post.downvotes})</span>
+                    <span className="muted small">
+                      {' '}
+                      (+{post.upvotes}/−{post.downvotes})
+                    </span>
                   </td>
                   <td className="num">{post.commentCount}</td>
                   <td>
@@ -121,8 +131,16 @@ export function PostsPage({ projectId }: { projectId: string }) {
         </div>
       )}
       <div className="row">
-        {page && <button onClick={() => setPage(null)}>First page</button>}
-        {posts.data?.nextCursor && <button onClick={() => setPage(posts.data.nextCursor)}>Next page</button>}
+        {page && (
+          <button type="button" onClick={() => setPage(null)}>
+            First page
+          </button>
+        )}
+        {posts.data?.nextCursor && (
+          <button type="button" onClick={() => setPage(posts.data.nextCursor)}>
+            Next page
+          </button>
+        )}
       </div>
     </div>
   );

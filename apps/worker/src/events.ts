@@ -27,17 +27,30 @@ interface EventRow {
   processed_at: number | null;
 }
 
+export interface PendingEvent {
+  id: string;
+  /** The outbox INSERT: put it in the same DB.batch as the change it describes. */
+  statement: D1PreparedStatement;
+}
+
 /**
- * Record an event in the outbox and hand it to the queue. Without a queue binding
- * (local dev) it is processed in the background of the current request instead.
+ * Build the outbox row for an event. Callers add `statement` to the batch that makes
+ * the change, so the change and its event commit (or fail) together, then call
+ * `dispatchEvent` once the batch has committed.
  */
-export async function emitEvent(env: Env, ctx: { waitUntil(promise: Promise<unknown>): void } | undefined, input: EventInput): Promise<void> {
+export function prepareEvent(env: Env, input: EventInput): PendingEvent {
   const id = newId();
-  await env.DB.prepare(
+  const statement = env.DB.prepare(
     'INSERT INTO events (id, project_id, type, post_id, actor_id, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  )
-    .bind(id, input.projectId, input.type, input.postId, input.actorId, JSON.stringify({ origin: input.origin, ...input.data }), now())
-    .run();
+  ).bind(id, input.projectId, input.type, input.postId, input.actorId, JSON.stringify({ origin: input.origin, ...input.data }), now());
+  return { id, statement };
+}
+
+/**
+ * Hand a committed event to the queue. Without a queue binding (local dev) it is
+ * processed in the background of the current request instead.
+ */
+export async function dispatchEvent(env: Env, ctx: { waitUntil(promise: Promise<unknown>): void } | undefined, id: string): Promise<void> {
   if (env.EVENTS) {
     try {
       await env.EVENTS.send({ eventId: id });
@@ -55,6 +68,11 @@ export async function emitEvent(env: Env, ctx: { waitUntil(promise: Promise<unkn
   }
 }
 
+/** Exponential backoff with jitter, capped at 5 minutes, so retries outlast short outages. */
+export function retryDelaySeconds(attempts: number): number {
+  return Math.min(300, 10 * 2 ** Math.max(0, attempts - 1)) + Math.floor(Math.random() * 5);
+}
+
 export async function handleEventBatch(batch: MessageBatch<EventMessage>, env: Env): Promise<void> {
   // In parallel, so one slow webhook does not hold up the rest of the batch.
   await Promise.all(
@@ -64,10 +82,15 @@ export async function handleEventBatch(batch: MessageBatch<EventMessage>, env: E
         message.ack();
       } catch (error) {
         console.error(JSON.stringify({ msg: 'event processing failed', eventId: message.body.eventId, error: String(error) }));
-        message.retry();
+        message.retry({ delaySeconds: retryDelaySeconds(message.attempts ?? 1) });
       }
     }),
   );
+}
+
+/** 4xx means the endpoint rejected this payload; only timeouts and throttling are worth a retry. */
+function isRetryableStatus(status: number): boolean {
+  return status >= 500 || status === 408 || status === 429;
 }
 
 export async function processEvent(env: Env, eventId: string): Promise<void> {
@@ -79,9 +102,7 @@ export async function processEvent(env: Env, eventId: string): Promise<void> {
   const origin = env.PUBLIC_URL?.replace(/\/+$/, '') || data.origin;
 
   const post = event.post_id ? await getPost(env, origin, project.id, event.post_id, null) : null;
-  const author = post
-    ? await env.DB.prepare('SELECT * FROM end_users WHERE id = ?').bind(post.authorId).first<EndUserRow>()
-    : null;
+  const author = post ? await env.DB.prepare('SELECT * FROM end_users WHERE id = ?').bind(post.authorId).first<EndUserRow>() : null;
 
   // Mark first: webhook/email delivery is at-most-once so queue retries never double-send.
   const claimed = await env.DB.prepare('UPDATE events SET processed_at = ? WHERE id = ? AND processed_at IS NULL')
@@ -103,9 +124,21 @@ export async function processEvent(env: Env, eventId: string): Promise<void> {
     sendEmails(env, { type: event.type, project, post, author, actorId: event.actor_id, extra, origin }),
   ]);
   // Delivery is at-most-once (the event is already claimed), so a failure here is final: log it.
-  for (const [channel, result] of [['webhooks', hooks], ['email', mail]] as const) {
+  for (const [channel, result] of [
+    ['webhooks', hooks],
+    ['email', mail],
+  ] as const) {
     if (result.status === 'rejected') {
-      console.error(JSON.stringify({ msg: 'event delivery failed', channel, eventId, type: event.type, projectId: project.id, error: String(result.reason) }));
+      console.error(
+        JSON.stringify({
+          msg: 'event delivery failed',
+          channel,
+          eventId,
+          type: event.type,
+          projectId: project.id,
+          error: String(result.reason),
+        }),
+      );
     }
   }
 }
@@ -144,9 +177,11 @@ async function deliverWebhooks(env: Env, projectId: string, type: FeedbackEventT
           });
           if (res.ok) return;
           console.warn(JSON.stringify({ msg: 'webhook non-2xx', hookId: hook.id, status: res.status }));
+          if (!isRetryableStatus(res.status)) return;
         } catch (error) {
           console.warn(JSON.stringify({ msg: 'webhook failed', hookId: hook.id, error: String(error) }));
         }
+        if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
       }
     }),
   );

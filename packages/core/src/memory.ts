@@ -37,8 +37,7 @@ export function createMemoryAdapter(options: MemoryAdapterOptions = {}): Feedbac
   let seq = 0;
   const id = () => `mem_${++seq}`;
   const now = Date.now();
-  const wait = <T>(value: T) =>
-    new Promise<T>((resolve) => setTimeout(() => resolve(jsonClone(value)), options.latency ?? 0));
+  const wait = <T>(value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(jsonClone(value)), options.latency ?? 0));
 
   const posts: Post[] = (options.posts ?? []).map((seed, i) => ({
     id: seed.id ?? id(),
@@ -126,7 +125,8 @@ export function createMemoryAdapter(options: MemoryAdapterOptions = {}): Feedbac
     getPost: async (postId) => wait(find(postId)),
     createPost: async (input) => {
       const who = requireViewer();
-      if (input.title.trim().length < BOARD_LIMITS.titleMin) throw new FeedbackApiError(400, 'invalid_input', 'title is too short', 'title', 'too_short');
+      if (input.title.trim().length < BOARD_LIMITS.titleMin)
+        throw new FeedbackApiError(400, 'invalid_input', 'title is too short', 'title', 'too_short');
       const ts = Date.now();
       const post: Post = {
         id: id(),
@@ -237,7 +237,10 @@ export function createMemoryAdapter(options: MemoryAdapterOptions = {}): Feedbac
         return wait(find(intoId));
       },
       deleteComment: async (postId, commentId) => {
-        comments.set(postId, (comments.get(postId) ?? []).filter((c) => c.id !== commentId));
+        comments.set(
+          postId,
+          (comments.get(postId) ?? []).filter((c) => c.id !== commentId),
+        );
         return wait(undefined);
       },
     },

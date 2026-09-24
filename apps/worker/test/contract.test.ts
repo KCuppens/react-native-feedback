@@ -57,7 +57,12 @@ describe('client ↔ worker contract', () => {
 
     // In-app admin via the same adapter, once the project allows it.
     await admin.updateSettings({ inAppAdmin: true });
-    const boss = createHostedAdapter({ projectKey: h.project.publicKey, baseUrl, fetch, userToken: await h.userToken({ id: 'boss', isAdmin: true }) });
+    const boss = createHostedAdapter({
+      projectKey: h.project.publicKey,
+      baseUrl,
+      fetch,
+      userToken: await h.userToken({ id: 'boss', isAdmin: true }),
+    });
     expect((await boss.getConfig()).viewer.isAdmin).toBe(true);
     await boss.admin!.updatePost(post.id, { status: 'in_progress' });
     const err = await alice.admin!.listQueue().catch((e: unknown) => e);

@@ -67,9 +67,32 @@ export function toProject(row: ProjectRow): Project {
   };
 }
 
+// Every public request resolves its project by public key, so keep recent rows per isolate.
+// Changes made in this isolate evict immediately; other isolates see them within the TTL.
+const byPublicKey = new Map<string, { project: Project; expires: number }>();
+const MAX_CACHED_PROJECTS = 1000;
+
+function projectCacheMs(env: Env): number {
+  const seconds = Number(env.PROJECT_CACHE_SECONDS ?? 30);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+}
+
+/** Drop a project from this isolate's cache after changing it. */
+export function forgetProject(projectId: string): void {
+  for (const [key, entry] of byPublicKey) if (entry.project.id === projectId) byPublicKey.delete(key);
+}
+
 export async function findProjectByPublicKey(env: Env, key: string): Promise<Project | null> {
+  const ttl = projectCacheMs(env);
+  const hit = ttl ? byPublicKey.get(key) : undefined;
+  if (hit && hit.expires > Date.now()) return hit.project;
   const row = await env.DB.prepare('SELECT * FROM projects WHERE public_key = ?').bind(key).first<ProjectRow>();
-  return row ? toProject(row) : null;
+  const project = row ? toProject(row) : null;
+  if (project && ttl) {
+    if (byPublicKey.size >= MAX_CACHED_PROJECTS) byPublicKey.clear();
+    byPublicKey.set(key, { project, expires: Date.now() + ttl });
+  }
+  return project;
 }
 
 export async function findProjectBySecretHash(env: Env, hash: string): Promise<Project | null> {
@@ -93,6 +116,7 @@ export async function findProjectBySlug(env: Env, slug: string): Promise<Project
  * which parseSettings turns back into the default.
  */
 export async function patchSettings(env: Env, projectId: string, patch: Partial<ProjectSettings>): Promise<ProjectSettings> {
+  forgetProject(projectId);
   const row = await env.DB.prepare('UPDATE projects SET settings = json_patch(settings, ?) WHERE id = ? RETURNING settings')
     .bind(JSON.stringify(patch), projectId)
     .first<{ settings: string }>();

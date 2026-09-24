@@ -19,13 +19,7 @@ export const USER_TOKEN_MAX_AGE_SECONDS = 24 * 60 * 60;
 
 /** Hex HMAC-SHA256, e.g. for deriving keyed identifiers on your server. */
 export async function hmacHex(secret: string, message: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    textEncoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
+  const key = await crypto.subtle.importKey('raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return toHex(await crypto.subtle.sign('HMAC', key, textEncoder.encode(message)));
 }
 
@@ -33,11 +27,7 @@ export async function hmacHex(secret: string, message: string): Promise<string> 
  * Sign a user for the feedback board. Call this on your server and hand the
  * returned token to the app (e.g. in your session/bootstrap response).
  */
-export async function signFeedbackUser(
-  claims: FeedbackUserClaims,
-  signingSecret: string,
-  now: number = Date.now(),
-): Promise<string> {
+export async function signFeedbackUser(claims: FeedbackUserClaims, signingSecret: string, now: number = Date.now()): Promise<string> {
   if (!claims.id) throw new Error('signFeedbackUser: claims.id is required');
   const payload = base64UrlEncode(JSON.stringify({ ...claims, iat: claims.iat ?? Math.floor(now / 1000) }));
   return `${payload}.${await hmacHex(signingSecret, payload)}`;
@@ -108,4 +98,3 @@ export async function verifyWebhook(
   if (Math.abs(Math.floor(now / 1000) - t) > toleranceSeconds) return false;
   return timingSafeEqual(parts.v1, await hmacHex(secret, `${t}.${body}`));
 }
-

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { FeedbackAdapter } from '../adapter';
 import { createHostedAdapter, type KeyValueStorage } from '../hosted';
 import { resolveStrings, type FeedbackStrings, type FeedbackStringsInput } from '../i18n';
@@ -56,27 +56,21 @@ export function FeedbackProvider(props: FeedbackProviderProps) {
     throw new Error('FeedbackProvider: pass either `projectKey` or a custom `adapter`.');
   }
 
+  // Intentional dependencies: getUserToken is read at call time; inline arrows would rebuild the adapter on every render
   const adapter = useMemo(
-    () =>
-      customAdapter ??
-      createHostedAdapter({ projectKey: projectKey!, baseUrl, userToken, getUserToken, storage }),
-    // getUserToken is intentionally excluded: inline arrow functions would rebuild the adapter every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    () => customAdapter ?? createHostedAdapter({ projectKey: projectKey!, baseUrl, userToken, getUserToken, storage }),
     [customAdapter, projectKey, baseUrl, userToken, storage],
   );
 
   // Inline `theme={{…}}` objects are common: key on content (themes are plain data) so a
   // host re-render does not rebuild every style in the board.
   const themeKey = JSON.stringify(props.theme ?? null);
-  const theme = useMemo(
-    () => resolveTheme(props.theme, props.colorScheme ?? 'light'),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [themeKey, props.colorScheme],
-  );
+  // Intentional dependencies: keyed on the theme's content so inline theme objects do not rebuild styles
+  const theme = useMemo(() => resolveTheme(props.theme, props.colorScheme ?? 'light'), [themeKey, props.colorScheme]);
   const strings = useMemo(() => resolveStrings(props.locale, props.strings), [props.locale, props.strings]);
 
   const featuresKey = JSON.stringify(props.features ?? {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Intentional dependencies: keyed on the features' content so inline objects do not re-render the board
   const clientFeatures = useMemo<ClientFeatures>(() => props.features ?? {}, [featuresKey]);
   // Stable callback around the latest onEvent, so inline handlers do not re-render the board.
   const onEventRef = useRef(props.onEvent ?? noop);
@@ -108,8 +102,13 @@ export function FeedbackProvider(props: FeedbackProviderProps) {
       }),
   );
 
+  const client = props.queryClient ?? ownClient;
+  // A different user must never see the previous one's votes, posts or admin config.
+  const scope = value.scope;
+  useEffect(() => adapter.subscribeIdentity?.(() => void client.resetQueries({ queryKey: ['rnf', scope] })), [adapter, client, scope]);
+
   return (
-    <QueryClientProvider client={props.queryClient ?? ownClient}>
+    <QueryClientProvider client={client}>
       <FeedbackContext.Provider value={value}>{props.children}</FeedbackContext.Provider>
     </QueryClientProvider>
   );

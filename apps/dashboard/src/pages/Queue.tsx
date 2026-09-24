@@ -67,20 +67,28 @@ function QueueCard({ projectId, post }: { projectId: string; post: Post }) {
       )}
       {declining ? (
         <div className="row">
-          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason shown to the author (optional)" aria-label="Decline reason" autoFocus />
-          <button className="danger" onClick={() => decline.mutate()} disabled={decline.isPending}>
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason shown to the author (optional)"
+            aria-label="Decline reason"
+            autoFocus
+          />
+          <button type="button" className="danger" onClick={() => decline.mutate()} disabled={decline.isPending}>
             Decline
           </button>
-          <button className="ghost" onClick={() => setDeclining(false)}>
+          <button type="button" className="ghost" onClick={() => setDeclining(false)}>
             Cancel
           </button>
         </div>
       ) : (
         <div className="row">
-          <button className="primary" onClick={() => approve.mutate()} disabled={approve.isPending}>
+          <button type="button" className="primary" onClick={() => approve.mutate()} disabled={approve.isPending}>
             Approve
           </button>
-          <button onClick={() => setDeclining(true)}>Decline…</button>
+          <button type="button" onClick={() => setDeclining(true)}>
+            Decline…
+          </button>
         </div>
       )}
       {error && <p className="error">{errorText(error)}</p>}

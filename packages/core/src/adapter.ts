@@ -33,6 +33,13 @@ export interface FeedbackAdapter {
 
   /** In-app admin; only called when `config.viewer.isAdmin` is true. */
   admin?: FeedbackAdminAdapter;
+
+  /**
+   * Called when the adapter starts acting as a different user (sign in, sign out,
+   * account switch), so cached data from the previous user can be dropped.
+   * Returns an unsubscribe function.
+   */
+  subscribeIdentity?(listener: () => void): () => void;
 }
 
 export interface FeedbackAdminAdapter {

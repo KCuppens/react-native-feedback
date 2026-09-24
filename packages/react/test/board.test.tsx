@@ -24,7 +24,12 @@ describe('<FeedbackBoard> (DOM)', () => {
 
   it('adds classNames and inline styles per slot, or drops defaults when unstyled', async () => {
     const first = render(
-      <FeedbackBoard adapter={seed()} locale="en" classNames={{ card: 'rounded-xl shadow' }} styles={{ cardTitle: { letterSpacing: '2px' } }} />,
+      <FeedbackBoard
+        adapter={seed()}
+        locale="en"
+        classNames={{ card: 'rounded-xl shadow' }}
+        styles={{ cardTitle: { letterSpacing: '2px' } }}
+      />,
     );
     const title = await screen.findByText('Dark mode');
     expect(title.closest('article')!.className).toBe('fb-card rounded-xl shadow');
@@ -75,7 +80,8 @@ describe('<FeedbackBoard> (DOM)', () => {
     fireEvent.click(up());
     await waitFor(() => expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' })));
     expect(up().getAttribute('aria-pressed')).toBe('false');
-    expect(screen.getByLabelText('2 votes')).toBeTruthy();
+    // The count is read from visually hidden text next to the number.
+    expect(screen.getByText('2 votes')).toBeTruthy();
   });
 
   it('replaces components', async () => {

@@ -30,7 +30,8 @@
     "FEATURE_ADMIN_API": "true",
     "FEATURE_PUBLIC_BOARD": "true",
     "FEATURE_EMAIL": "false",
-    "FROM_NAME": "Feedback"
+    "FROM_NAME": "Feedback",
+    "PROJECT_CACHE_SECONDS": "30"
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "feedback-dev", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
@@ -48,7 +49,8 @@
         "FEATURE_PUBLIC_BOARD": "true",
         "FEATURE_EMAIL": "true",
         "FROM_EMAIL": "feedback@example.com",
-        "FROM_NAME": "Feedback"
+        "FROM_NAME": "Feedback",
+        "PROJECT_CACHE_SECONDS": "30"
       },
       "d1_databases": [
         { "binding": "DB", "database_name": "feedback", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }

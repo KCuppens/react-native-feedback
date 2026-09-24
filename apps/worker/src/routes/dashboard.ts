@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
 import type { AppEnv, ProjectRow } from '../env';
 import { createSessionCookieValue, requireDashboard, SESSION_COOKIE, SESSION_TTL_SECONDS } from '../auth';
-import { findProjectById, LIMITS, slugify, toProject, toSummary } from '../projects';
+import { findProjectById, forgetProject, LIMITS, slugify, toProject, toSummary } from '../projects';
 import {
   clientIp,
   deleteFilesInBackground,
@@ -104,6 +104,7 @@ dashboardRoutes.patch('/projects/:id', async (c) => {
     if (taken) fail(409, 'slug_taken');
   }
   await c.env.DB.prepare('UPDATE projects SET name = ?, slug = ? WHERE id = ?').bind(name, slug, project.id).run();
+  forgetProject(project.id);
   const pending = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM posts WHERE project_id = ? AND moderation = 'pending'")
     .bind(project.id)
     .first<{ n: number }>();
@@ -115,7 +116,12 @@ dashboardRoutes.delete('/projects/:id', async (c) => {
   const { results } = await c.env.DB.prepare('SELECT r2_key FROM attachments WHERE project_id = ?').bind(id).all<{ r2_key: string }>();
   const res = await c.env.DB.prepare('DELETE FROM projects WHERE id = ?').bind(id).run();
   if (!res.meta.changes) fail(404, 'project_not_found');
-  deleteFilesInBackground(c, results.map((r) => r.r2_key), `project ${id}`);
+  forgetProject(id);
+  deleteFilesInBackground(
+    c,
+    results.map((r) => r.r2_key),
+    `project ${id}`,
+  );
   return c.body(null, 204);
 });
 
@@ -130,6 +136,7 @@ dashboardRoutes.post('/projects/:id/rotate', async (c) => {
   if (!project) fail(404, 'project_not_found');
   const body = await readJson(c.req.raw);
   const fresh = generateProjectKeys();
+  forgetProject(project.id);
   const result: { publicKey: string; signingSecret: string; secretKey?: string } = {
     publicKey: project.publicKey,
     signingSecret: project.signingSecret,

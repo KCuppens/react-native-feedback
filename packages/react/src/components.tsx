@@ -95,8 +95,9 @@ export function VoteControl(props: VoteControlProps) {
   return (
     <div {...slot('voteBox')}>
       {arrow(1)}
-      <span {...slot('voteCount')} aria-label={strings.post.votes(post.score)}>
-        {post.score}
+      <span {...slot('voteCount')}>
+        <span aria-hidden="true">{post.score}</span>
+        <span className="fb-srOnly">{strings.post.votes(post.score)}</span>
       </span>
       {showDownvote && arrow(-1)}
     </div>

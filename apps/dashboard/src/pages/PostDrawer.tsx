@@ -25,7 +25,8 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
   // Searchable, so low-voted duplicates beyond the top 100 can still be picked.
   const mergeCandidates = useQuery({
     queryKey: ['p', projectId, 'merge-candidates', mergeSearch.trim()],
-    queryFn: async () => (await admin.listPosts({ moderation: 'approved', sort: 'top', limit: 100, q: mergeSearch.trim() || undefined })).items,
+    queryFn: async () =>
+      (await admin.listPosts({ moderation: 'approved', sort: 'top', limit: 100, q: mergeSearch.trim() || undefined })).items,
   });
 
   const run = <T,>(fn: () => Promise<T>) => ({ mutationFn: fn, onSuccess: invalidate });
@@ -65,7 +66,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
       <aside ref={dialog} tabIndex={-1} className="drawer" role="dialog" aria-modal="true" aria-label="Post">
         <div className="row between">
           <span className="muted small">{p ? `${p.author.name ?? 'Anonymous'} · ${formatRelativeTime(locales.en, p.createdAt)}` : ''}</span>
-          <button className="ghost" onClick={onClose} aria-label="Close">
+          <button type="button" className="ghost" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
@@ -99,7 +100,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
               <section className="panel stack">
                 {p.moderation !== 'approved' && (
                   <div className="row">
-                    <button className="primary" onClick={() => approve.mutate()} disabled={approve.isPending}>
+                    <button type="button" className="primary" onClick={() => approve.mutate()} disabled={approve.isPending}>
                       Approve
                     </button>
                     {p.moderation === 'pending' && (
@@ -110,7 +111,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                           placeholder="Decline reason (optional)"
                           aria-label="Decline reason"
                         />
-                        <button className="danger" onClick={() => decline.mutate()} disabled={decline.isPending}>
+                        <button type="button" className="danger" onClick={() => decline.mutate()} disabled={decline.isPending}>
                           Decline
                         </button>
                       </>
@@ -146,7 +147,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                           </option>
                         ))}
                     </select>
-                    <button onClick={() => merge.mutate()} disabled={!mergeTarget || merge.isPending}>
+                    <button type="button" onClick={() => merge.mutate()} disabled={!mergeTarget || merge.isPending}>
                       Merge
                     </button>
                   </div>
@@ -154,15 +155,15 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                 {confirmDelete ? (
                   <div className="row">
                     <span className="error">Delete permanently, including votes, comments and images?</span>
-                    <button className="danger" onClick={() => remove.mutate()} disabled={remove.isPending}>
+                    <button type="button" className="danger" onClick={() => remove.mutate()} disabled={remove.isPending}>
                       Delete
                     </button>
-                    <button className="ghost" onClick={() => setConfirmDelete(false)}>
+                    <button type="button" className="ghost" onClick={() => setConfirmDelete(false)}>
                       Cancel
                     </button>
                   </div>
                 ) : (
-                  <button className="ghost danger-text" onClick={() => setConfirmDelete(true)}>
+                  <button type="button" className="ghost danger-text" onClick={() => setConfirmDelete(true)}>
                     Delete post…
                   </button>
                 )}
@@ -198,7 +199,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                 ))}
               </ul>
               {comments.hasNextPage && (
-                <button onClick={() => void comments.fetchNextPage()} disabled={comments.isFetchingNextPage}>
+                <button type="button" onClick={() => void comments.fetchNextPage()} disabled={comments.isFetchingNextPage}>
                   Load more comments
                 </button>
               )}
@@ -216,7 +217,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                   aria-label="Official reply"
                   rows={3}
                 />
-                <button className="primary" disabled={!reply.trim() || sendReply.isPending}>
+                <button type="submit" className="primary" disabled={!reply.trim() || sendReply.isPending}>
                   Reply as team
                 </button>
               </form>

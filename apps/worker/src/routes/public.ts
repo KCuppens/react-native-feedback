@@ -9,7 +9,7 @@ import {
 import { Hono, type Context } from 'hono';
 import type { AppEnv } from '../env';
 import { getViewer, isInAppAdmin, projectAuth, requireViewer } from '../auth';
-import { emitEvent } from '../events';
+import { dispatchEvent, prepareEvent } from '../events';
 import {
   claimAttachments,
   fileUrl,
@@ -50,9 +50,7 @@ for (const path of ['/config', '/posts', '/posts/*', '/uploads', '/roadmap', '/m
 }
 
 export async function loadCategories(c: Context<AppEnv>): Promise<Category[]> {
-  const { results } = await c.env.DB.prepare(
-    'SELECT id, name, color, sort FROM categories WHERE project_id = ? ORDER BY sort, name',
-  )
+  const { results } = await c.env.DB.prepare('SELECT id, name, color, sort FROM categories WHERE project_id = ? ORDER BY sort, name')
     .bind(c.get('project').id)
     .all<Category>();
   return results;
@@ -154,6 +152,7 @@ publicRoutes.post('/posts', async (c) => {
   const ts = now();
   const moderation = project.settings.autoApprove || admin ? 'approved' : 'pending';
   const claim = await claimAttachments(c.env, project.id, viewer.id, attachmentIds, { postId: id });
+  const event = prepareEvent(c.env, { projectId: project.id, type: 'post.created', postId: id, actorId: viewer.id, origin: originOf(c) });
   await c.env.DB.batch([
     c.env.DB.prepare(
       `INSERT INTO posts (id, project_id, author_id, title, body, category_id, moderation, created_at, updated_at)
@@ -163,9 +162,9 @@ publicRoutes.post('/posts', async (c) => {
     c.env.DB.prepare('INSERT INTO votes (post_id, user_id, value, created_at) VALUES (?, ?, 1, ?)').bind(id, viewer.id, ts),
     recountVotes(c.env, id),
     ...(claim ? [claim] : []),
+    event.statement,
   ]);
-
-  await emitEvent(c.env, ctxOf(c), { projectId: project.id, type: 'post.created', postId: id, actorId: viewer.id, origin: originOf(c) });
+  await dispatchEvent(c.env, ctxOf(c), event.id);
   const post = await getPost(c.env, originOf(c), project.id, id, viewer.id);
   return c.json(publicPost(post!), 201);
 });
@@ -199,7 +198,9 @@ publicRoutes.post('/posts/:id/vote', async (c) => {
 publicRoutes.get('/posts/:id/comments', async (c) => {
   const viewer = await getViewer(c);
   const post = await visiblePost(c, c.req.param('id'), viewer?.id ?? null);
-  return c.json(await listComments(c.env, originOf(c), post.id, parseCursor(c.req.query('cursor')), parseLimit(c.req.query('limit'), 50, 100)));
+  return c.json(
+    await listComments(c.env, originOf(c), post.id, parseCursor(c.req.query('cursor')), parseLimit(c.req.query('limit'), 50, 100)),
+  );
 });
 
 publicRoutes.post('/posts/:id/comments', async (c) => {
@@ -217,6 +218,14 @@ publicRoutes.post('/posts/:id/comments', async (c) => {
 
   const id = newId();
   const ts = now();
+  const event = prepareEvent(c.env, {
+    projectId: project.id,
+    type: 'comment.created',
+    postId: post.id,
+    actorId: viewer.id,
+    data: { commentId: id, body: text, isOfficial: admin },
+    origin: originOf(c),
+  });
   const claim = await claimAttachments(c.env, project.id, viewer.id, attachmentIds, { postId: post.id, commentId: id });
   await c.env.DB.batch([
     c.env.DB.prepare('INSERT INTO comments (id, post_id, author_id, body, is_official, created_at) VALUES (?, ?, ?, ?, ?, ?)').bind(
@@ -229,18 +238,10 @@ publicRoutes.post('/posts/:id/comments', async (c) => {
     ),
     ...(claim ? [claim] : []),
     recountComments(c.env, post.id),
-    ...(admin
-      ? [c.env.DB.prepare('UPDATE posts SET last_official_reply_at = ? WHERE id = ?').bind(ts, post.id)]
-      : []),
+    ...(admin ? [c.env.DB.prepare('UPDATE posts SET last_official_reply_at = ? WHERE id = ?').bind(ts, post.id)] : []),
+    event.statement,
   ]);
-  await emitEvent(c.env, ctxOf(c), {
-    projectId: project.id,
-    type: 'comment.created',
-    postId: post.id,
-    actorId: viewer.id,
-    data: { commentId: id, body: text, isOfficial: admin },
-    origin: originOf(c),
-  });
+  await dispatchEvent(c.env, ctxOf(c), event.id);
   return c.json(await getComment(c.env, originOf(c), id), 201);
 });
 
@@ -331,7 +332,13 @@ publicRoutes.get('/me/updates', async (c) => {
     .bind(viewer.id, since, c.get('project').id)
     .all<{ id: string }>();
 
-  const posts = await getPostsByIds(c.env, originOf(c), c.get('project').id, results.map((r) => r.id), viewer.id);
+  const posts = await getPostsByIds(
+    c.env,
+    originOf(c),
+    c.get('project').id,
+    results.map((r) => r.id),
+    viewer.id,
+  );
   const items: UpdateItem[] = [];
   for (const post of posts) {
     const pub = publicPost(post);

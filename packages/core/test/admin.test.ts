@@ -44,7 +44,9 @@ describe('createAdminClient', () => {
     const r = recorder();
     const admin = createAdminClient({ baseUrl: 'https://api.test', secretKey: 'sk', fetch: r.fetch }).project();
     await admin.listPosts({ moderation: 'pending', status: ['planned', 'done'], categoryId: 'c1', q: 'dark', sort: 'new', limit: 10 });
-    expect(r.call().url).toBe('https://api.test/v1/admin/posts?sort=new&status=planned%2Cdone&category=c1&q=dark&limit=10&moderation=pending');
+    expect(r.call().url).toBe(
+      'https://api.test/v1/admin/posts?sort=new&status=planned%2Cdone&category=c1&q=dark&limit=10&moderation=pending',
+    );
     await admin.listPosts();
     expect(r.call(1).url).toBe('https://api.test/v1/admin/posts');
   });

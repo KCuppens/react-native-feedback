@@ -109,7 +109,11 @@ export function FeedbackList({ onOpenPost, onNewPost, initialSort = 'top', hideT
         }}
         onEndReachedThreshold={0.5}
         refreshControl={
-          <RefreshControl refreshing={query.isRefetching && !query.isFetchingNextPage} onRefresh={() => void query.refetch()} tintColor={theme.colors.primary} />
+          <RefreshControl
+            refreshing={query.isRefetching && !query.isFetchingNextPage}
+            onRefresh={() => void query.refetch()}
+            tintColor={theme.colors.primary}
+          />
         }
         keyboardShouldPersistTaps="handled"
       />

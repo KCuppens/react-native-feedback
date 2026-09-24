@@ -19,7 +19,8 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
     },
   });
   const update = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: { name?: string; color?: string | null; sort?: number } }) => admin.updateCategory(id, patch),
+    mutationFn: ({ id, patch }: { id: string; patch: { name?: string; color?: string | null; sort?: number } }) =>
+      admin.updateCategory(id, patch),
     onSuccess: invalidate,
   });
   const remove = useMutation({ mutationFn: (id: string) => admin.deleteCategory(id), onSuccess: invalidate });
@@ -28,7 +29,8 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
   // Rewrite positions from the list order so equal sort values can never stall a swap,
   // and block further moves until both writes land.
   const reorder = useMutation({
-    mutationFn: (ordered: Category[]) => Promise.all(ordered.map((c, sort) => (c.sort === sort ? null : admin.updateCategory(c.id, { sort })))),
+    mutationFn: (ordered: Category[]) =>
+      Promise.all(ordered.map((c, sort) => (c.sort === sort ? null : admin.updateCategory(c.id, { sort })))),
     onSettled: invalidate,
   });
   const move = (from: number, to: number) => {
@@ -55,13 +57,22 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
             />
             <input
               defaultValue={c.name}
-              onBlur={(e) => e.target.value.trim() && e.target.value !== c.name && update.mutate({ id: c.id, patch: { name: e.target.value.trim() } })}
+              onBlur={(e) =>
+                e.target.value.trim() && e.target.value !== c.name && update.mutate({ id: c.id, patch: { name: e.target.value.trim() } })
+              }
               aria-label={`Name of ${c.name}`}
             />
-            <button className="ghost" disabled={i === 0 || reorder.isPending} onClick={() => move(i, i - 1)} aria-label={`Move ${c.name} up`}>
+            <button
+              type="button"
+              className="ghost"
+              disabled={i === 0 || reorder.isPending}
+              onClick={() => move(i, i - 1)}
+              aria-label={`Move ${c.name} up`}
+            >
               ↑
             </button>
             <button
+              type="button"
               className="ghost"
               disabled={i === list.length - 1 || reorder.isPending}
               onClick={() => move(i, i + 1)}
@@ -86,8 +97,14 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
         }}
       >
         <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Colour" />
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New category" aria-label="New category name" maxLength={40} />
-        <button className="primary" disabled={!name.trim() || create.isPending}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="New category"
+          aria-label="New category name"
+          maxLength={40}
+        />
+        <button type="submit" className="primary" disabled={!name.trim() || create.isPending}>
           Add
         </button>
       </form>
@@ -100,12 +117,11 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
 function ColorField({ value, label, onSave }: { value: string; label: string; onSave: (color: string) => void }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
+  // Intentional dependencies: onSave is recreated every render; the timer only needs the latest draft
   useEffect(() => {
     if (draft === value) return;
     const id = setTimeout(() => onSave(draft), 400);
     return () => clearTimeout(id);
-    // onSave is recreated every render; the timer only needs the latest draft.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft, value]);
   return <input type="color" value={draft} onChange={(e) => setDraft(e.target.value)} aria-label={label} />;
 }

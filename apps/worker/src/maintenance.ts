@@ -3,6 +3,8 @@ import { processEvent } from './events';
 
 const DAY = 86_400_000;
 const BATCH = 500;
+/** Without a queue each event is delivered inline, so keep the cron's work bounded. */
+const INLINE_BATCH = 25;
 
 /**
  * Hourly cron: redeliver stuck events, then clean up uploads, the event outbox and
@@ -40,9 +42,7 @@ export async function runMaintenance(env: Env, now = Date.now()): Promise<void> 
 async function deleteUnclaimedUploads(env: Env, before: number): Promise<number> {
   let deleted = 0;
   for (;;) {
-    const { results } = await env.DB.prepare(
-      'SELECT id, r2_key FROM attachments WHERE post_id IS NULL AND created_at < ? LIMIT ?',
-    )
+    const { results } = await env.DB.prepare('SELECT id, r2_key FROM attachments WHERE post_id IS NULL AND created_at < ? LIMIT ?')
       .bind(before, BATCH)
       .all<{ id: string; r2_key: string }>();
     if (results.length === 0) return deleted;
@@ -53,13 +53,23 @@ async function deleteUnclaimedUploads(env: Env, before: number): Promise<number>
   }
 }
 
-/** Events whose queue send failed (see emitEvent) or whose consumer died before claiming them. */
+/**
+ * Events whose queue send failed (see dispatchEvent) or whose consumer died before claiming
+ * them. With a queue they are re-enqueued, so delivery gets the queue's parallelism, backoff
+ * and dead-letter handling instead of running inside the cron's time budget.
+ */
 async function redeliverStuckEvents(env: Env, before: number): Promise<number> {
   const { results } = await env.DB.prepare(
     'SELECT id FROM events WHERE processed_at IS NULL AND created_at < ? ORDER BY created_at LIMIT ?',
   )
-    .bind(before, BATCH)
+    .bind(before, env.EVENTS ? BATCH : INLINE_BATCH)
     .all<{ id: string }>();
+  if (env.EVENTS) {
+    for (let i = 0; i < results.length; i += 100) {
+      await env.EVENTS.sendBatch(results.slice(i, i + 100).map(({ id }) => ({ body: { eventId: id } })));
+    }
+    return results.length;
+  }
   for (const { id } of results) {
     try {
       await processEvent(env, id);

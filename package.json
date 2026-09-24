@@ -16,9 +16,12 @@
     "build:web": "npm run build -w @feedback/dashboard -w @feedback/public-board && node scripts/collect-assets.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "deploy": "npm run typecheck && npm test && npm run build:web && npm run db:migrate:remote -w @feedback/worker && npm run deploy -w @feedback/worker"
+    "deploy": "npm run typecheck && npm test && npm run build:web && npm run db:migrate:remote -w @feedback/worker && npm run deploy -w @feedback/worker",
+    "lint": "biome check .",
+    "format": "biome check --write ."
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
     "@types/react": "^19.1.0",
     "typescript": "~5.9.2"
   }

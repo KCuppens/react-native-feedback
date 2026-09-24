@@ -73,7 +73,11 @@ function QueueItem({ post, onOpen }: { post: Post; onOpen: () => void }) {
         </View>
       ) : (
         <View style={styles.adminRow}>
-          <Button label={strings.admin.approve} onPress={() => m.approve.mutate(post.id)} loading={m.approve.isPending && m.approve.variables === post.id} />
+          <Button
+            label={strings.admin.approve}
+            onPress={() => m.approve.mutate(post.id)}
+            loading={m.approve.isPending && m.approve.variables === post.id}
+          />
           <Button label={strings.admin.decline} variant="secondary" onPress={() => setDeclining(true)} />
         </View>
       )}

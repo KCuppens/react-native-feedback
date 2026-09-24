@@ -50,7 +50,9 @@ describe('input edge cases', () => {
   it('treats a blank categoryId as no category', async () => {
     const post = await createPost({ user: 'alice' }, 'Blank category', { categoryId: '  ' });
     expect(post.category).toBeNull();
-    const patched = await json<Post>(h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: admin(), json: { categoryId: '' } }));
+    const patched = await json<Post>(
+      h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: admin(), json: { categoryId: '' } }),
+    );
     expect(patched.category).toBeNull();
   });
 
@@ -58,7 +60,9 @@ describe('input edge cases', () => {
     h.setSettings({ inAppAdmin: true });
     const boss = await h.as({ user: 'boss', isAdmin: true });
     const post = await json<Post>(h.request('/v1/posts', { method: 'POST', headers: boss, json: { title: 'Admin idea' } }), 201);
-    const updated = await json<Post>(h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: boss, json: { status: 'planned' } }));
+    const updated = await json<Post>(
+      h.request(`/v1/admin/posts/${post.id}`, { method: 'PATCH', headers: boss, json: { status: 'planned' } }),
+    );
     expect(updated).toMatchObject({ myVote: 1, isMine: true, status: 'planned' });
   });
 });
@@ -76,10 +80,18 @@ describe('merged and declined guards', () => {
     h.setSettings({ inAppAdmin: true });
     const post = await createPost({ user: 'alice' });
     await h.request(`/v1/admin/posts/${post.id}/decline`, { method: 'POST', headers: admin(), json: { reason: 'No' } });
-    const byAuthor = await h.request(`/v1/posts/${post.id}/comments`, { method: 'POST', headers: await h.as({ user: 'alice' }), json: { body: 'Why?' } });
+    const byAuthor = await h.request(`/v1/posts/${post.id}/comments`, {
+      method: 'POST',
+      headers: await h.as({ user: 'alice' }),
+      json: { body: 'Why?' },
+    });
     expect(byAuthor.status).toBe(409);
     const byAdmin = await json<{ isOfficial: boolean }>(
-      h.request(`/v1/posts/${post.id}/comments`, { method: 'POST', headers: await h.as({ user: 'boss', isAdmin: true }), json: { body: 'Duplicate.' } }),
+      h.request(`/v1/posts/${post.id}/comments`, {
+        method: 'POST',
+        headers: await h.as({ user: 'boss', isAdmin: true }),
+        json: { body: 'Duplicate.' },
+      }),
       201,
     );
     expect(byAdmin.isOfficial).toBe(true);
@@ -93,7 +105,9 @@ describe('merged and declined guards', () => {
     await vote({ user: 'carol' }, a.id, 1);
     await vote({ user: 'carol' }, b.id, 1);
     await h.request(`/v1/admin/posts/${c.id}/merge`, { method: 'POST', headers: admin(), json: { intoId: b.id } });
-    const merged = await json<Post>(h.request(`/v1/admin/posts/${b.id}/merge`, { method: 'POST', headers: admin(), json: { intoId: a.id } }));
+    const merged = await json<Post>(
+      h.request(`/v1/admin/posts/${b.id}/merge`, { method: 'POST', headers: admin(), json: { intoId: a.id } }),
+    );
     // alice, bob, carol (once) and dan.
     expect(merged.upvotes).toBe(4);
     const chained = await json<Post>(h.request(`/v1/admin/posts/${c.id}`, { headers: admin() }));
@@ -112,7 +126,14 @@ describe('notifications', () => {
   });
 
   it('retries queue messages whose processing throws', async () => {
-    const broken = { ...h.env, DB: { prepare: () => { throw new Error('db down'); } } as unknown as D1Database };
+    const broken = {
+      ...h.env,
+      DB: {
+        prepare: () => {
+          throw new Error('db down');
+        },
+      } as unknown as D1Database,
+    };
     const message = { body: { eventId: 'e1' }, ack: vi.fn(), retry: vi.fn() };
     await handleEventBatch({ messages: [message] } as unknown as MessageBatch<EventMessage>, broken);
     expect(message.retry).toHaveBeenCalled();
@@ -139,7 +160,13 @@ describe('notifications', () => {
   });
 
   it('does not fail the request when the queue is down', async () => {
-    h = await createHarness({ EVENTS: { send: async () => { throw new Error('queue down'); } } as unknown as Queue<EventMessage> });
+    h = await createHarness({
+      EVENTS: {
+        send: async () => {
+          throw new Error('queue down');
+        },
+      } as unknown as Queue<EventMessage>,
+    });
     const post = await createPost({ user: 'alice' });
     expect(post.moderation).toBe('pending');
     const row = h.db.prepare('SELECT processed_at FROM events WHERE post_id = ?').get(post.id) as { processed_at: number | null };
@@ -177,7 +204,11 @@ describe('abuse limits', () => {
 
   it('locks out dashboard logins after 10 attempts per IP', async () => {
     const attempt = (ip: string) =>
-      h.request('/v1/dashboard/login', { method: 'POST', headers: { 'CF-Connecting-IP': ip }, json: { password: 'correct horse battery staple' } });
+      h.request('/v1/dashboard/login', {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': ip },
+        json: { password: 'correct horse battery staple' },
+      });
     // Nine earlier attempts in this window: the tenth still goes through, the eleventh is refused.
     h.db.prepare('INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 9)').run('login:203.0.113.7', Date.now());
     expect((await attempt('203.0.113.7')).status).toBe(200);
@@ -194,7 +225,7 @@ describe('maintenance', () => {
     const alice = await h.as({ user: 'alice' });
     const form = new FormData();
     form.append('file', new File(['x'], 'a.png', { type: 'image/png' }));
-    const orphan = await json<{ id: string }>(h.request('/v1/uploads', { method: 'POST', headers: alice, body: form }), 201);
+    await json(h.request('/v1/uploads', { method: 'POST', headers: alice, body: form }), 201);
     const form2 = new FormData();
     form2.append('file', new File(['y'], 'b.png', { type: 'image/png' }));
     const kept = await json<{ id: string }>(h.request('/v1/uploads', { method: 'POST', headers: alice, body: form2 }), 201);
@@ -218,7 +249,6 @@ describe('maintenance', () => {
     expect(h.db.prepare('SELECT id FROM events').all()).toEqual([{ id: 'stuck' }]);
   });
 });
-
 
 describe('review follow-ups', () => {
   it('deletes duplicates together with the post they were merged into', async () => {

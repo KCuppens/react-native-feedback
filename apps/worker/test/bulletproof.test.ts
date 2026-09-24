@@ -23,8 +23,7 @@ describe('bulletproof round 1', () => {
   });
 
   it('merges concurrent settings patches instead of overwriting them', async () => {
-    const patch = (body: Partial<ProjectSettings>) =>
-      h.request('/v1/admin/settings', { method: 'PATCH', headers: admin(), json: body });
+    const patch = (body: Partial<ProjectSettings>) => h.request('/v1/admin/settings', { method: 'PATCH', headers: admin(), json: body });
     await Promise.all([patch({ autoApprove: true }), patch({ allowDownvotes: false })]);
     const settings = (await (await h.request('/v1/admin/settings', { headers: admin() })).json()) as ProjectSettings;
     expect(settings).toMatchObject({ autoApprove: true, allowDownvotes: false });
@@ -86,5 +85,96 @@ describe('bulletproof round 1', () => {
     expect(page.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
     expect(page.headers.get('X-Frame-Options')).toBe('DENY');
     expect(page.headers.get('X-Request-Id')).toBeTruthy();
+  });
+
+  it('reports an unreachable database as unhealthy', async () => {
+    h.env.DB = {
+      prepare: () => {
+        throw new Error('no db');
+      },
+    } as unknown as D1Database;
+    const res = await h.request('/v1/health');
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, checks: { db: 'error' } });
+  });
+
+  it('re-enqueues stuck events through the queue and backs off retries', async () => {
+    const { retryDelaySeconds } = await import('../src/events');
+    const { runMaintenance } = await import('../src/maintenance');
+    const sent: unknown[] = [];
+    h = await createHarness({
+      EVENTS: { send: async () => {}, sendBatch: async (msgs: unknown[]) => void sent.push(...msgs) } as unknown as Queue<{
+        eventId: string;
+      }>,
+    });
+    h.db
+      .prepare("INSERT INTO events (id, project_id, type, payload, created_at) VALUES ('e1', ?, 'post.created', '{}', ?)")
+      .run(h.project.id, Date.now() - 10 * 60_000);
+    await runMaintenance(h.env);
+    expect(sent).toEqual([{ body: { eventId: 'e1' } }]);
+
+    expect(retryDelaySeconds(1)).toBeGreaterThanOrEqual(10);
+    expect(retryDelaySeconds(3)).toBeGreaterThanOrEqual(40);
+    expect(retryDelaySeconds(20)).toBeLessThan(305);
+  });
+
+  it('does not retry a webhook the endpoint rejected with a 4xx', async () => {
+    const calls: number[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      calls.push(1);
+      return new Response('nope', { status: 400 });
+    }) as typeof fetch;
+    try {
+      await h.request('/v1/admin/webhooks', {
+        method: 'POST',
+        headers: admin(),
+        json: { url: 'https://hooks.test/in', events: ['post.created'] },
+      });
+      await h.request('/v1/posts', { method: 'POST', headers: await h.as({ user: 'alice' }), json: { title: 'Webhook me' } });
+      expect(calls).toHaveLength(1);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it('reuses project rows within the TTL and evicts them on change', async () => {
+    h = await createHarness({ PROJECT_CACHE_SECONDS: '60' });
+    const config = async () =>
+      ((await (await h.request('/v1/config', { headers: await h.as({}) })).json()) as { project: { name: string } }).project.name;
+    expect(await config()).toBe('Demo App');
+    h.db.prepare("UPDATE projects SET name = 'Renamed directly' WHERE id = ?").run(h.project.id);
+    expect(await config()).toBe('Demo App');
+    await h.request('/v1/admin/settings', { method: 'PATCH', headers: admin(), json: { autoApprove: true } });
+    expect(await config()).toBe('Renamed directly');
+  });
+
+  it('serves attachments from the edge cache and answers conditional requests', async () => {
+    const store = new Map<string, Response>();
+    const edge = {
+      match: async (req: Request) => store.get(req.url)?.clone(),
+      put: async (req: Request, res: Response) => void store.set(req.url, res),
+    };
+    const original = (globalThis as { caches?: unknown }).caches;
+    (globalThis as { caches?: unknown }).caches = { default: edge };
+    try {
+      const form = new FormData();
+      form.append('file', new File(['img'], 'a.png', { type: 'image/png' }));
+      const up = (await (
+        await h.request('/v1/uploads', { method: 'POST', headers: await h.as({ user: 'alice' }), body: form })
+      ).json()) as { id: string };
+      const first = await h.request(`/v1/files/${up.id}`);
+      const etag = first.headers.get('ETag')!;
+      expect(etag).toBeTruthy();
+      expect(store.size).toBe(1);
+      h.files.store.clear(); // the edge copy must be enough now
+      expect(await (await h.request(`/v1/files/${up.id}`)).text()).toBe('img');
+      store.clear();
+      h.files.store.set(`${h.project.id}/${up.id}`, { body: new TextEncoder().encode('img').buffer as ArrayBuffer });
+      const conditional = await h.request(`/v1/files/${up.id}`, { headers: { 'If-None-Match': etag } });
+      expect(conditional.status).toBe(304);
+    } finally {
+      (globalThis as { caches?: unknown }).caches = original;
+    }
   });
 });

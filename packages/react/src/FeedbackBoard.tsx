@@ -231,8 +231,7 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
         )}
         <div
           id={`${ids}-panel`}
-          role={tabs.length > 1 ? 'tabpanel' : undefined}
-          aria-labelledby={tabs.length > 1 ? `${ids}-tab-${activeTab}` : undefined}
+          {...(tabs.length > 1 ? { role: 'tabpanel', 'aria-labelledby': `${ids}-tab-${activeTab}` } : {})}
           style={{ display: 'flex', flexDirection: 'column', flex: 1 }}
         >
           {activeTab === 'board' && <FeedbackList onOpenPost={open} onNewPost={() => navigate({ name: 'submit' })} />}

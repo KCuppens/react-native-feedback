@@ -30,7 +30,12 @@ export function WebhooksPage({ projectId }: { projectId: string }) {
         <article key={h.id} className="card stack">
           <div className="row between">
             <strong className="mono">{h.url}</strong>
-            <ConfirmButton label="Delete" question="Delete this webhook?" pending={remove.isPending} onConfirm={() => remove.mutate(h.id)} />
+            <ConfirmButton
+              label="Delete"
+              question="Delete this webhook?"
+              pending={remove.isPending}
+              onConfirm={() => remove.mutate(h.id)}
+            />
           </div>
           <span className="muted small">{h.events.join(', ')}</span>
           <SecretField label="Signing secret" value={h.secret} />
@@ -44,7 +49,14 @@ export function WebhooksPage({ projectId }: { projectId: string }) {
         }}
       >
         <h3>Add endpoint</h3>
-        <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://api.yourapp.com/feedback-webhook" aria-label="Webhook URL" required />
+        <input
+          type="url"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="https://api.yourapp.com/feedback-webhook"
+          aria-label="Webhook URL"
+          required
+        />
         <fieldset className="checks">
           <legend>Events</legend>
           {FEEDBACK_EVENT_TYPES.map((type) => (
@@ -58,7 +70,7 @@ export function WebhooksPage({ projectId }: { projectId: string }) {
             </label>
           ))}
         </fieldset>
-        <button className="primary" disabled={!url || events.length === 0 || create.isPending}>
+        <button type="submit" className="primary" disabled={!url || events.length === 0 || create.isPending}>
           Add webhook
         </button>
         {(create.error ?? remove.error) && <p className="error">{errorText(create.error ?? remove.error)}</p>}

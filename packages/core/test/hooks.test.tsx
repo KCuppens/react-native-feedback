@@ -26,7 +26,10 @@ import {
   useVote,
 } from '../src/react';
 
-function setup(options: MemoryAdapterOptions = {}, props: { features?: ClientFeatures; onEvent?: () => void; adapter?: FeedbackAdapter } = {}) {
+function setup(
+  options: MemoryAdapterOptions = {},
+  props: { features?: ClientFeatures; onEvent?: () => void; adapter?: FeedbackAdapter } = {},
+) {
   const adapter = props.adapter ?? createMemoryAdapter(options);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onEvent = props.onEvent ?? vi.fn();
@@ -55,7 +58,9 @@ describe('FeedbackProvider', () => {
 
   it('exposes theme, strings and provider presence; hooks throw outside it', () => {
     const { wrapper } = setup();
-    const { result } = renderHook(() => ({ theme: useFeedbackTheme(), strings: useFeedbackStrings(), has: useHasFeedbackProvider() }), { wrapper });
+    const { result } = renderHook(() => ({ theme: useFeedbackTheme(), strings: useFeedbackStrings(), has: useHasFeedbackProvider() }), {
+      wrapper,
+    });
     expect(result.current.strings.tabs.roadmap).toBe('Roadmap');
     expect(result.current.strings.sort.top).toBe('Populair');
     expect(result.current.theme.colorScheme).toBe('light');
@@ -80,16 +85,22 @@ describe('FeedbackProvider', () => {
 
 describe('useFeatures', () => {
   it('lets the client hide features but never enable what the server disabled', async () => {
-    const { wrapper } = setup({ settings: { allowDownvotes: false, inAppAdmin: true }, viewer: { id: 'boss', isAdmin: true } }, {
-      features: { roadmap: false, downvote: true, admin: true },
-    });
+    const { wrapper } = setup(
+      { settings: { allowDownvotes: false, inAppAdmin: true }, viewer: { id: 'boss', isAdmin: true } },
+      {
+        features: { roadmap: false, downvote: true, admin: true },
+      },
+    );
     const { result } = renderHook(() => useFeatures(), { wrapper });
     await waitFor(() => expect(result.current).toBeDefined());
     expect(result.current).toMatchObject({ roadmap: false, downvote: false, vote: true, admin: true, comments: true });
   });
 
   it('turns downvotes off with votes, and admin off on request', async () => {
-    const { wrapper } = setup({ settings: { inAppAdmin: true }, viewer: { id: 'boss', isAdmin: true } }, { features: { vote: false, admin: false } });
+    const { wrapper } = setup(
+      { settings: { inAppAdmin: true }, viewer: { id: 'boss', isAdmin: true } },
+      { features: { vote: false, admin: false } },
+    );
     const { result } = renderHook(() => useFeatures(), { wrapper });
     await waitFor(() => expect(result.current).toBeDefined());
     expect(result.current).toMatchObject({ vote: false, downvote: false, admin: false });
@@ -144,7 +155,9 @@ describe('posts and votes', () => {
 describe('comments', () => {
   it('appends a new comment when every page is loaded and bumps the count', async () => {
     const { wrapper, onEvent } = setup(seeded());
-    const { result } = renderHook(() => ({ comments: useComments('p1'), post: usePost('p1'), create: useCreateComment('p1') }), { wrapper });
+    const { result } = renderHook(() => ({ comments: useComments('p1'), post: usePost('p1'), create: useCreateComment('p1') }), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current.comments.data && result.current.post.data).toBeTruthy());
     await act(() => result.current.create.mutateAsync({ body: 'First' }));
     await waitFor(() => expect(result.current.comments.data!.pages[0]!.items.map((c) => c.body)).toEqual(['First']));
@@ -194,7 +207,7 @@ describe('moderation', () => {
   it('approves, declines, updates, merges and deletes, keeping the queue fresh', async () => {
     const { wrapper, adapter } = adminSetup();
     const { result } = renderHook(() => ({ queue: useAdminQueue(), m: useModeration(), live: usePost('a1') }), { wrapper });
-    await waitFor(() => expect(result.current.queue.data?.pages[0]!.items).toHaveLength(2));
+    await waitFor(() => expect(result.current.queue.data?.pages[0]?.items).toHaveLength(2));
 
     await act(() => result.current.m.approve.mutateAsync('q1'));
     await act(() => result.current.m.decline.mutateAsync({ id: 'q2', reason: 'Spam' }));
@@ -220,5 +233,23 @@ describe('moderation', () => {
     });
     await waitFor(() => expect(result.current.m.approve.error?.message).toBe('This adapter has no admin support'));
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+  });
+});
+
+describe('identity changes', () => {
+  it('drops cached data when the adapter switches user', async () => {
+    const adapter = createMemoryAdapter(seeded());
+    let notify = () => {};
+    adapter.subscribeIdentity = (listener) => {
+      notify = listener;
+      return () => {};
+    };
+    const list = vi.spyOn(adapter, 'listPosts');
+    const { wrapper } = setup({}, { adapter });
+    const { result } = renderHook(() => usePosts(), { wrapper });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(list).toHaveBeenCalledTimes(1);
+    act(() => notify());
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
   });
 });

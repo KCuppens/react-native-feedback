@@ -7,7 +7,7 @@ import { findProjectBySlug } from './projects';
 import { adminRoutes } from './routes/admin';
 import { dashboardRoutes } from './routes/dashboard';
 import { publicRoutes } from './routes/public';
-import { fail, flag } from './util';
+import { ctxOf, fail, flag } from './util';
 
 export const app = new Hono<AppEnv>();
 
@@ -24,37 +24,65 @@ app.use('*', async (c, next) => {
 app.use('/v1/*', async (c, next) => {
   if (c.req.path.startsWith('/v1/dashboard')) return next();
   c.header('Access-Control-Allow-Origin', '*');
-  c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Feedback-Key, X-Feedback-User, X-Feedback-Anon, X-Feedback-Project');
+  c.header(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Feedback-Key, X-Feedback-User, X-Feedback-Anon, X-Feedback-Project',
+  );
   c.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   c.header('Access-Control-Max-Age', '86400');
   if (c.req.method === 'OPTIONS') return c.body(null, 204);
   await next();
 });
 
-app.get('/v1/health', (c) => c.json({ ok: true }));
+// Probes D1 so uptime checks catch a missing or misconfigured database, not just a live isolate.
+app.get('/v1/health', async (c) => {
+  const started = Date.now();
+  let db: 'ok' | 'error' = 'ok';
+  try {
+    await c.env.DB.prepare('SELECT 1').first();
+  } catch {
+    db = 'error';
+  }
+  const ok = db === 'ok';
+  return c.json(
+    { ok, status: ok ? 'healthy' : 'unhealthy', checks: { db, dbMs: Date.now() - started }, environment: c.env.ENVIRONMENT ?? null },
+    ok ? 200 : 503,
+  );
+});
 
 // Attachments are fetched by <img> tags, which cannot send headers: ids are unguessable UUIDs.
+// Content never changes for an id, so the edge cache serves repeat views without D1 or R2.
 app.get('/v1/files/:id', async (c) => {
+  const edge = typeof caches === 'undefined' ? undefined : (caches as unknown as { default: Cache }).default;
+  const cached = await edge?.match(c.req.raw);
+  if (cached) return cached;
   const row = await c.env.DB.prepare('SELECT r2_key, mime FROM attachments WHERE id = ?')
     .bind(c.req.param('id'))
     .first<{ r2_key: string; mime: string }>();
   if (!row) fail(404, 'not_found');
   const object = await c.env.FILES.get(row.r2_key);
   if (!object) fail(404, 'not_found');
-  return new Response(object.body, {
-    headers: {
-      'Content-Type': row.mime,
-      'Cache-Control': 'public, max-age=31536000, immutable',
-      'X-Content-Type-Options': 'nosniff',
-      'Access-Control-Allow-Origin': '*',
-    },
-  });
+  const headers = {
+    'Content-Type': row.mime,
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    'X-Content-Type-Options': 'nosniff',
+    'Access-Control-Allow-Origin': '*',
+    ...(object.httpEtag ? { ETag: object.httpEtag } : {}),
+  };
+  if (object.httpEtag && c.req.header('If-None-Match') === object.httpEtag) return new Response(null, { status: 304, headers });
+  const res = new Response(object.body, { headers });
+  if (edge) {
+    const put = edge.put(c.req.raw, res.clone()).catch(() => undefined);
+    const ctx = ctxOf(c);
+    if (ctx) ctx.waitUntil(put);
+  }
+  return res;
 });
 
 app.get('/v1/public/projects/:slug', async (c) => {
   if (!flag(c.env, 'FEATURE_PUBLIC_BOARD')) fail(404, 'not_found');
   const project = await findProjectBySlug(c.env, c.req.param('slug'));
-  if (!project || !project.settings.publicBoard) fail(404, 'not_found');
+  if (!project?.settings.publicBoard) fail(404, 'not_found');
   return c.json({ name: project.name, slug: project.slug, publicKey: project.publicKey });
 });
 
@@ -122,7 +150,11 @@ app.onError((err, c) => {
       stack: err instanceof Error ? err.stack : undefined,
     }),
   );
-  return c.json({ error: 'internal_error', message: 'Something went wrong', requestId }, 500, requestId ? { 'X-Request-Id': requestId } : {});
+  return c.json(
+    { error: 'internal_error', message: 'Something went wrong', requestId },
+    500,
+    requestId ? { 'X-Request-Id': requestId } : {},
+  );
 });
 
 export default {

@@ -9,7 +9,18 @@ import {
   useVote,
 } from '@kobecuppens/feedback-core/react';
 import { useEffect, useMemo, useState } from 'react';
-import { Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Text, TextInput, View, type ImageStyle } from 'react-native';
+import {
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+  type ImageStyle,
+} from 'react-native';
 import { Avatar, Button, CategoryPill, Chip, ErrorState, Header, InlineError, Loading, PostStatusPill, VoteControl } from '../components';
 import { useUI } from '../ui';
 
@@ -30,10 +41,10 @@ export function FeedbackDetail({ postId, initialPost, onBack, onDeleted }: Feedb
   const post = query.data;
   const vote = useVote();
 
+  // Intentional dependencies: report post_opened once per opened post, not on every refetch
   useEffect(() => {
     if (post) onEvent({ type: 'post_opened', post });
     // Only once per opened post.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [post?.id]);
 
   if (!post) {
@@ -97,7 +108,12 @@ export function FeedbackDetail({ postId, initialPost, onBack, onDeleted }: Feedb
                 accessibilityRole="imagebutton"
                 accessibilityLabel={strings.post.openAttachment(i + 1)}
               >
-                <Image source={{ uri: a.url }} style={styles.attachmentImage as ImageStyle} resizeMode="cover" accessibilityIgnoresInvertColors />
+                <Image
+                  source={{ uri: a.url }}
+                  style={styles.attachmentImage as ImageStyle}
+                  resizeMode="cover"
+                  accessibilityIgnoresInvertColors
+                />
               </Pressable>
             ))}
           </View>
@@ -124,7 +140,12 @@ function CommentList({ postId }: { postId: string }) {
         <CommentItem key={c.id} comment={c} />
       ))}
       {query.hasNextPage && (
-        <Button label={strings.list.loadMore} variant="secondary" loading={query.isFetchingNextPage} onPress={() => void query.fetchNextPage()} />
+        <Button
+          label={strings.list.loadMore}
+          variant="secondary"
+          loading={query.isFetchingNextPage}
+          onPress={() => void query.fetchNextPage()}
+        />
       )}
     </View>
   );
@@ -223,7 +244,12 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
           <Text style={styles.inputLabel}>{strings.admin.changeStatus}</Text>
           <View style={styles.adminRow}>
             {POST_STATUSES.map((s) => (
-              <Chip key={s} label={strings.status[s]} active={post.status === s} onPress={() => m.update.mutate({ id: post.id, patch: { status: s } })} />
+              <Chip
+                key={s}
+                label={strings.status[s]}
+                active={post.status === s}
+                onPress={() => m.update.mutate({ id: post.id, patch: { status: s } })}
+              />
             ))}
           </View>
         </>

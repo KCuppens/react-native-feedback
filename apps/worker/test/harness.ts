@@ -75,7 +75,7 @@ export function createR2() {
     },
     get: async (key: string) => {
       const obj = store.get(key);
-      return obj ? { body: new Blob([obj.body]).stream() } : null;
+      return obj ? { body: new Blob([obj.body]).stream(), httpEtag: `"${key}"` } : null;
     },
     delete: async (keys: string | string[]) => {
       for (const k of Array.isArray(keys) ? keys : [keys]) store.delete(k);
@@ -136,6 +136,8 @@ export async function createHarness(envOverrides: Partial<Env> = {}): Promise<Ha
     SESSION_SECRET: 'x'.repeat(40),
     ADMIN_EMAIL: 'owner@example.com',
     FROM_EMAIL: 'feedback@example.com',
+    // Tests edit project rows directly; opt in to the cache where a test covers it.
+    PROJECT_CACHE_SECONDS: '0',
     ...envOverrides,
   };
 

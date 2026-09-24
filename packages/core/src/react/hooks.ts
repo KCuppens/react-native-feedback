@@ -1,11 +1,4 @@
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type InfiniteData,
-  type QueryClient,
-} from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { useMemo, useRef } from 'react';
 import type {
   AdminPostPatch,
@@ -94,9 +87,7 @@ export function updateCachedPost(client: QueryClient, scope: string, postId: str
     items: page.items.map((p) => (p.id === postId ? update(p) : p)),
   });
   for (const queryKey of [feedbackKeys.postsPrefix(scope), feedbackKeys.queue(scope)]) {
-    client.setQueriesData<InfiniteData<Page<Post>>>({ queryKey }, (data) =>
-      data ? { ...data, pages: data.pages.map(mapPage) } : data,
-    );
+    client.setQueriesData<InfiniteData<Page<Post>>>({ queryKey }, (data) => (data ? { ...data, pages: data.pages.map(mapPage) } : data));
   }
   client.setQueryData<Post>(feedbackKeys.post(scope, postId), (post) => (post ? update(post) : post));
   client.setQueryData<RoadmapColumn[]>(feedbackKeys.roadmap(scope), (cols) =>
@@ -216,10 +207,7 @@ export function useMarkUpdatesSeen() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () => adapter.markUpdatesSeen(),
-    onSuccess: () =>
-      client.setQueryData<Updates>(feedbackKeys.updates(scope), (data) =>
-        data ? { ...data, unseen: 0 } : data,
-      ),
+    onSuccess: () => client.setQueryData<Updates>(feedbackKeys.updates(scope), (data) => (data ? { ...data, unseen: 0 } : data)),
   });
 }
 

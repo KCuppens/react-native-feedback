@@ -130,9 +130,7 @@ export function createTheme(input: FeedbackThemeInput = {}): FeedbackTheme {
   return deepMerge(base, input);
 }
 
-export type ThemeProp =
-  | FeedbackThemeInput
-  | { light?: FeedbackThemeInput; dark?: FeedbackThemeInput };
+export type ThemeProp = FeedbackThemeInput | { light?: FeedbackThemeInput; dark?: FeedbackThemeInput };
 
 /** Resolve the `theme` prop for the current system scheme. */
 export function resolveTheme(prop: ThemeProp | undefined, scheme: 'light' | 'dark'): FeedbackTheme {

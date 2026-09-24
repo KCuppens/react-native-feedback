@@ -36,6 +36,8 @@ export interface Env {
   FROM_NAME?: string;
   /** Public origin, used in email links. Defaults to the request origin. */
   PUBLIC_URL?: string;
+  /** How long an isolate may reuse a project row (default 30; 0 disables). */
+  PROJECT_CACHE_SECONDS?: string;
 }
 
 export interface ProjectRow {

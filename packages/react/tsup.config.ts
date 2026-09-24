@@ -14,6 +14,6 @@ export default defineConfig({
   onSuccess: async () => {
     const source = readFileSync('src/css.ts', 'utf8');
     const css = source.slice(source.indexOf('`') + 1, source.lastIndexOf('`'));
-    writeFileSync('dist/styles.css', css.trim() + '\n');
+    writeFileSync('dist/styles.css', `${css.trim()}\n`);
   },
 });

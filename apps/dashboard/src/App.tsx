@@ -41,7 +41,7 @@ function Login() {
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password" />
         </label>
         {login.isError && <p className="error">{errorText(login.error)}</p>}
-        <button className="primary" disabled={!password || login.isPending}>
+        <button type="submit" className="primary" disabled={!password || login.isPending}>
           {login.isPending ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
@@ -63,7 +63,9 @@ function Shell() {
   const client = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.dashboard.listProjects });
   const [creating, setCreating] = useState(false);
-  const logout = useMutation({ mutationFn: api.dashboard.logout, onSuccess: () => {
+  const logout = useMutation({
+    mutationFn: api.dashboard.logout,
+    onSuccess: () => {
       client.clear();
       window.location.reload();
     },
@@ -98,11 +100,11 @@ function Shell() {
             </a>
           ))}
         </nav>
-        <button className="ghost" onClick={() => setCreating(true)}>
+        <button type="button" className="ghost" onClick={() => setCreating(true)}>
           ＋ New project
         </button>
         <div className="spacer" />
-        <button className="ghost" onClick={() => logout.mutate()}>
+        <button type="button" className="ghost" onClick={() => logout.mutate()}>
           Sign out
         </button>
       </aside>
@@ -113,7 +115,7 @@ function Shell() {
           <div className="empty">
             <h2>No project selected</h2>
             <p className="muted">Create a project for each app that embeds the board.</p>
-            <button className="primary" onClick={() => setCreating(true)}>
+            <button type="button" className="primary" onClick={() => setCreating(true)}>
               Create a project
             </button>
           </div>
@@ -179,7 +181,13 @@ function CreateProject({ onClose }: { onClose: () => void }) {
 
   if (secrets) {
     return (
-      <Modal title="Project created" onClose={() => { navigate(href(secrets.id, 'settings')); onClose(); }}>
+      <Modal
+        title="Project created"
+        onClose={() => {
+          navigate(href(secrets.id, 'settings'));
+          onClose();
+        }}
+      >
         <p>Copy the admin API key now: it is stored hashed and won't be shown again.</p>
         <SecretField label="Public key (in your app)" value={secrets.publicKey} revealed />
         <SecretField label="Signing secret (your server only)" value={secrets.signingSecret} />
@@ -201,7 +209,7 @@ function CreateProject({ onClose }: { onClose: () => void }) {
           <input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="1% Better" />
         </label>
         {create.isError && <p className="error">{errorText(create.error)}</p>}
-        <button className="primary" disabled={!name.trim() || create.isPending}>
+        <button type="submit" className="primary" disabled={!name.trim() || create.isPending}>
           Create
         </button>
       </form>

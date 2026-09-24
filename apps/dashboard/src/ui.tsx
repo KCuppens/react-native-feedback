@@ -3,7 +3,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 export const STATUS_LABELS = locales.en.status;
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Modal focus handling: focus moves into the dialog, Tab stays inside it, Escape closes,
@@ -48,7 +49,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
       <div ref={ref} tabIndex={-1} className="card modal" role="dialog" aria-modal="true" aria-label={title}>
         <div className="row between">
           <h2>{title}</h2>
-          <button className="ghost" onClick={onClose} aria-label="Close">
+          <button type="button" className="ghost" onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
@@ -65,7 +66,12 @@ export function SecretField({ label, value, revealed = false }: { label: string;
     <label className="secret">
       {label}
       <div className="row">
-        <input readOnly value={show ? value : '•'.repeat(Math.min(value.length, 32))} className="mono" onFocus={(e) => show && e.target.select()} />
+        <input
+          readOnly
+          value={show ? value : '•'.repeat(Math.min(value.length, 32))}
+          className="mono"
+          onFocus={(e) => show && e.target.select()}
+        />
         {!revealed && (
           <button type="button" className="ghost" onClick={() => setShow((s) => !s)}>
             {show ? 'Hide' : 'Show'}

@@ -2,7 +2,7 @@ import { FEEDBACK_EVENT_TYPES, POST_STATUSES, type Moderation, type PostStatus }
 import { Hono, type Context } from 'hono';
 import type { AppEnv } from '../env';
 import { adminActor, adminAuth, getViewer, requireFullAdmin } from '../auth';
-import { emitEvent, toWebhookConfig } from '../events';
+import { dispatchEvent, prepareEvent, toWebhookConfig, type PendingEvent } from '../events';
 import {
   attachmentKeysForPost,
   getComment,
@@ -17,11 +17,23 @@ import {
   type PostRecord,
 } from '../posts';
 import { LIMITS, patchSettings, validateSettingsPatch } from '../projects';
-import { assertCategory, ctxOf, deleteFilesInBackground, fail, newId, now, originOf, parseCursor, parseLimit, randomToken, readJson, str } from '../util';
+import {
+  assertCategory,
+  ctxOf,
+  deleteFilesInBackground,
+  fail,
+  newId,
+  now,
+  originOf,
+  parseCursor,
+  parseLimit,
+  randomToken,
+  readJson,
+  str,
+} from '../util';
 import { loadCategories } from './public';
 
 export const adminRoutes = new Hono<AppEnv>();
-
 
 adminRoutes.use('*', adminAuth);
 
@@ -35,17 +47,18 @@ async function loadPost(c: Context<AppEnv>, id: string): Promise<PostRecord> {
 
 const reload = async (c: Context<AppEnv>, id: string) => publicPost(await loadPost(c, id));
 
-async function emit(c: Context<AppEnv>, type: (typeof FEEDBACK_EVENT_TYPES)[number], postId: string, data?: Record<string, unknown>) {
+/** An outbox row for an admin action; batch its statement with the change, then dispatch. */
+async function adminEvent(
+  c: Context<AppEnv>,
+  type: (typeof FEEDBACK_EVENT_TYPES)[number],
+  postId: string,
+  data?: Record<string, unknown>,
+): Promise<PendingEvent> {
   const actor = c.get('adminLevel') === 'moderator' ? await getViewer(c) : null;
-  await emitEvent(c.env, ctxOf(c), {
-    projectId: c.get('project').id,
-    type,
-    postId,
-    actorId: actor?.id ?? null,
-    data,
-    origin: originOf(c),
-  });
+  return prepareEvent(c.env, { projectId: c.get('project').id, type, postId, actorId: actor?.id ?? null, data, origin: originOf(c) });
 }
+
+const dispatch = (c: Context<AppEnv>, event: PendingEvent) => dispatchEvent(c.env, ctxOf(c), event.id);
 
 adminRoutes.get('/posts', async (c) => {
   const raw = c.req.query('moderation');
@@ -83,12 +96,16 @@ adminRoutes.post('/posts/:id/approve', async (c) => {
   const post = await loadPost(c, c.req.param('id'));
   if (post.moderation === 'approved') return c.json(publicPost(post));
   const ts = now();
-  await c.env.DB.prepare(
-    "UPDATE posts SET moderation = 'approved', decline_reason = NULL, moderated_at = ?, updated_at = ? WHERE id = ?",
-  )
-    .bind(ts, ts, post.id)
-    .run();
-  await emit(c, 'post.approved', post.id);
+  const event = await adminEvent(c, 'post.approved', post.id);
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE posts SET moderation = 'approved', decline_reason = NULL, moderated_at = ?, updated_at = ? WHERE id = ?").bind(
+      ts,
+      ts,
+      post.id,
+    ),
+    event.statement,
+  ]);
+  await dispatch(c, event);
   return c.json(await reload(c, post.id));
 });
 
@@ -97,12 +114,17 @@ adminRoutes.post('/posts/:id/decline', async (c) => {
   const body = await readJson(c.req.raw);
   const reason = str(body, 'reason', { max: LIMITS.declineReasonMax, optional: true, nullable: true }) || null;
   const ts = now();
-  await c.env.DB.prepare(
-    "UPDATE posts SET moderation = 'declined', decline_reason = ?, moderated_at = ?, updated_at = ? WHERE id = ?",
-  )
-    .bind(reason, ts, ts, post.id)
-    .run();
-  await emit(c, 'post.declined', post.id, { reason });
+  const event = await adminEvent(c, 'post.declined', post.id, { reason });
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE posts SET moderation = 'declined', decline_reason = ?, moderated_at = ?, updated_at = ? WHERE id = ?").bind(
+      reason,
+      ts,
+      ts,
+      post.id,
+    ),
+    event.statement,
+  ]);
+  await dispatch(c, event);
   return c.json(await reload(c, post.id));
 });
 
@@ -141,12 +163,14 @@ adminRoutes.patch('/posts/:id', async (c) => {
     sets.push('body = ?');
     params.push(text);
   }
+  const event = statusChanged ? await adminEvent(c, 'post.status_changed', post.id, { previousStatus: post.status }) : null;
   if (sets.length) {
-    await c.env.DB.prepare(`UPDATE posts SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`)
-      .bind(...params, ts, post.id)
-      .run();
+    await c.env.DB.batch([
+      c.env.DB.prepare(`UPDATE posts SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).bind(...params, ts, post.id),
+      ...(event ? [event.statement] : []),
+    ]);
   }
-  if (statusChanged) await emit(c, 'post.status_changed', post.id, { previousStatus: post.status });
+  if (event) await dispatch(c, event);
   return c.json(await reload(c, post.id));
 });
 
@@ -154,14 +178,12 @@ adminRoutes.delete('/posts/:id', async (c) => {
   const post = await loadPost(c, c.req.param('id'));
   // Duplicates merged into this post go with it: their votes already live here, and
   // ON DELETE SET NULL would otherwise put them back on the board.
-  const { results: merged } = await c.env.DB.prepare('SELECT id FROM posts WHERE merged_into_id = ?')
-    .bind(post.id)
-    .all<{ id: string }>();
+  const { results: merged } = await c.env.DB.prepare('SELECT id FROM posts WHERE merged_into_id = ?').bind(post.id).all<{ id: string }>();
   const ids = [post.id, ...merged.map((m) => m.id)];
   const keys = (await Promise.all(ids.map((id) => attachmentKeysForPost(c.env, id)))).flat();
-  await c.env.DB.batch(ids.map((id) => c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(id)));
-  // Announce only once the delete has committed.
-  await emit(c, 'post.deleted', post.id, { snapshot: publicPost(post), mergedIds: ids.slice(1) });
+  const event = await adminEvent(c, 'post.deleted', post.id, { snapshot: publicPost(post), mergedIds: ids.slice(1) });
+  await c.env.DB.batch([...ids.map((id) => c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(id)), event.statement]);
+  await dispatch(c, event);
   deleteFilesInBackground(c, keys, `post ${post.id}`);
   return c.body(null, 204);
 });
@@ -183,6 +205,7 @@ adminRoutes.post('/posts/:id/merge', async (c) => {
     .bind(target.id, ts, source.id)
     .run();
   if (!claimed.meta.changes) fail(409, 'merge_conflict', 'One of these posts was merged in the meantime.');
+  const event = await adminEvent(c, 'post.merged', source.id, { intoId: target.id });
   await c.env.DB.batch([
     // Carry supporters over; users who already voted on the target keep their vote.
     c.env.DB.prepare(
@@ -190,14 +213,17 @@ adminRoutes.post('/posts/:id/merge', async (c) => {
     ).bind(target.id, source.id),
     recountVotes(c.env, target.id),
     c.env.DB.prepare('UPDATE posts SET merged_into_id = ? WHERE merged_into_id = ?').bind(target.id, source.id),
+    event.statement,
   ]);
-  await emit(c, 'post.merged', source.id, { intoId: target.id });
+  await dispatch(c, event);
   return c.json(await reload(c, target.id));
 });
 
 adminRoutes.get('/posts/:id/comments', async (c) => {
   const post = await loadPost(c, c.req.param('id'));
-  return c.json(await listComments(c.env, originOf(c), post.id, parseCursor(c.req.query('cursor')), parseLimit(c.req.query('limit'), 100, 200)));
+  return c.json(
+    await listComments(c.env, originOf(c), post.id, parseCursor(c.req.query('cursor')), parseLimit(c.req.query('limit'), 100, 200)),
+  );
 });
 
 adminRoutes.post('/posts/:id/comments', async (c) => {
@@ -207,6 +233,7 @@ adminRoutes.post('/posts/:id/comments', async (c) => {
   const actor = await adminActor(c);
   const id = newId();
   const ts = now();
+  const event = await adminEvent(c, 'comment.created', post.id, { commentId: id, body: text, isOfficial: true });
   await c.env.DB.batch([
     c.env.DB.prepare('INSERT INTO comments (id, post_id, author_id, body, is_official, created_at) VALUES (?, ?, ?, ?, 1, ?)').bind(
       id,
@@ -217,8 +244,9 @@ adminRoutes.post('/posts/:id/comments', async (c) => {
     ),
     recountComments(c.env, post.id),
     c.env.DB.prepare('UPDATE posts SET last_official_reply_at = ? WHERE id = ?').bind(ts, post.id),
+    event.statement,
   ]);
-  await emit(c, 'comment.created', post.id, { commentId: id, body: text, isOfficial: true });
+  await dispatch(c, event);
   return c.json(await getComment(c.env, originOf(c), id), 201);
 });
 
@@ -308,11 +336,7 @@ config.post('/webhooks', async (c) => {
   }
   if (parsed.protocol !== 'https:' && c.env.ENVIRONMENT === 'production') fail(400, 'invalid_input', 'webhook url must be https');
   const events = body.events;
-  if (
-    !Array.isArray(events) ||
-    events.length === 0 ||
-    events.some((e) => !(FEEDBACK_EVENT_TYPES as readonly unknown[]).includes(e))
-  ) {
+  if (!Array.isArray(events) || events.length === 0 || events.some((e) => !(FEEDBACK_EVENT_TYPES as readonly unknown[]).includes(e))) {
     fail(400, 'invalid_input', `events must be a non-empty subset of ${FEEDBACK_EVENT_TYPES.join(', ')}`);
   }
   const row = {

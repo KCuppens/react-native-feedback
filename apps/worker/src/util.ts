@@ -36,7 +36,12 @@ export function generateProjectKeys() {
 export type InvalidReason = 'required' | 'not_string' | 'too_short' | 'too_long' | 'not_array' | 'too_many';
 
 /** Throw a JSON error `{ error, message, ...details }`; details carry e.g. `{ field, reason }` for form errors. */
-export function fail(status: ContentfulStatusCode, error: string, message?: string, details?: { field: string; reason: InvalidReason }): never {
+export function fail(
+  status: ContentfulStatusCode,
+  error: string,
+  message?: string,
+  details?: { field: string; reason: InvalidReason },
+): never {
   throw new HTTPException(status, {
     res: new Response(JSON.stringify({ error, message: message ?? error, ...details }), {
       status,
@@ -159,7 +164,9 @@ export function deleteFilesInBackground(c: Context<AppEnv>, keys: string[], what
   if (keys.length === 0) return;
   const work = (async () => {
     for (let i = 0; i < keys.length; i += 1000) await c.env.FILES.delete(keys.slice(i, i + 1000));
-  })().catch((error: unknown) => console.error(JSON.stringify({ msg: 'r2 cleanup failed', what, keys: keys.length, error: String(error) })));
+  })().catch((error: unknown) =>
+    console.error(JSON.stringify({ msg: 'r2 cleanup failed', what, keys: keys.length, error: String(error) })),
+  );
   const ctx = ctxOf(c);
   if (ctx) ctx.waitUntil(work);
 }

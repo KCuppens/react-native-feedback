@@ -14,13 +14,14 @@ if (!name) {
   console.error('Usage: npm run project:create -- --name "My App" [--slug my-app] [--remote] [--env production]');
   process.exit(1);
 }
-const slug = (opt('slug') ?? name)
-  .toLowerCase()
-  .normalize('NFKD')
-  .replace(/[̀-ͯ]/g, '')
-  .replace(/[^a-z0-9]+/g, '-')
-  .replace(/^-+|-+$/g, '')
-  .slice(0, 48) || 'project';
+const slug =
+  (opt('slug') ?? name)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'project';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 const token = (n) => {

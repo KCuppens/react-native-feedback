@@ -26,7 +26,15 @@ export type FeedbackProviderProps = Omit<CoreProviderProps, 'colorScheme'> & {
  * Provider for composing the exported screens inside your own navigation.
  * Defaults storage to AsyncStorage (native) / localStorage (web).
  */
-export function FeedbackProvider({ styles, components, pickImage, hideHeader, colorScheme = 'system', storage, ...props }: FeedbackProviderProps) {
+export function FeedbackProvider({
+  styles,
+  components,
+  pickImage,
+  hideHeader,
+  colorScheme = 'system',
+  storage,
+  ...props
+}: FeedbackProviderProps) {
   const system = useColorScheme();
   const scheme = colorScheme === 'system' ? (system === 'dark' ? 'dark' : 'light') : colorScheme;
   const resolvedStorage = useMemo(() => storage ?? defaultStorage(), [storage]);

@@ -17,9 +17,9 @@ export function FeedbackUpdates({ onOpenPost, markSeen = true }: FeedbackUpdates
   const seen = useMarkUpdatesSeen();
   const unseen = query.data?.unseen ?? 0;
 
+  // Intentional dependencies: the mutation object changes every render; only a new unseen count should trigger this
   useEffect(() => {
     if (markSeen && unseen > 0 && !seen.isPending) seen.mutate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markSeen, unseen]);
 
   if (query.isPending) return <Loading />;

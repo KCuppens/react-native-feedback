@@ -17,7 +17,7 @@ let current = parse();
 const listeners = new Set<() => void>();
 window.addEventListener('hashchange', () => {
   current = parse();
-  listeners.forEach((l) => l());
+  for (const l of listeners) l();
 });
 
 export function useRoute(): Route {

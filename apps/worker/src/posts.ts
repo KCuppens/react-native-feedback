@@ -1,13 +1,4 @@
-import type {
-  Attachment,
-  Comment,
-  Moderation,
-  Page,
-  Post,
-  PostSort,
-  PostStatus,
-  VoteValue,
-} from '@kobecuppens/feedback-core';
+import type { Attachment, Comment, Moderation, Page, Post, PostSort, PostStatus, VoteValue } from '@kobecuppens/feedback-core';
 import { POST_STATUSES } from '@kobecuppens/feedback-core';
 import type { Env } from './env';
 import { fail, placeholders } from './util';
@@ -298,13 +289,7 @@ async function hydrateComments(env: Env, origin: string, rows: CommentRow[]): Pr
   }));
 }
 
-export async function listComments(
-  env: Env,
-  origin: string,
-  postId: string,
-  offset: number,
-  limit: number,
-): Promise<Page<Comment>> {
+export async function listComments(env: Env, origin: string, postId: string, offset: number, limit: number): Promise<Page<Comment>> {
   const { results } = await env.DB.prepare(
     `${COMMENT_SELECT} WHERE cm.post_id = ? AND cm.deleted_at IS NULL ORDER BY cm.created_at ASC, cm.id ASC LIMIT ? OFFSET ?`,
   )

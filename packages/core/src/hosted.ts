@@ -14,6 +14,7 @@ import type {
   UploadFile,
   VoteValue,
 } from './types';
+import { base64UrlDecodeToString } from './encoding';
 import { parseResponse, toQuery } from './http';
 
 /** Default hosted API. Override per app with `baseUrl`. */
@@ -68,11 +69,24 @@ function memoryStorage(): KeyValueStorage {
   return { getItem: (k) => map.get(k) ?? null, setItem: (k, v) => void map.set(k, v) };
 }
 
+/** Which user a token is for (its unverified `id` claim); refreshed tokens for the same user compare equal. */
+function identityOf(token: string | null): string | null {
+  if (!token) return null;
+  try {
+    const claims = JSON.parse(base64UrlDecodeToString(token.slice(0, token.lastIndexOf('.')))) as { id?: unknown };
+    return typeof claims.id === 'string' ? claims.id : token;
+  } catch {
+    return token;
+  }
+}
+
 export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdapter {
   const baseUrl = (options.baseUrl ?? DEFAULT_API_URL).replace(/\/+$/, '');
   const doFetch = options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const storage = options.storage ?? memoryStorage();
   let userToken = options.userToken ?? null;
+  let identity = identityOf(userToken);
+  const identityListeners = new Set<() => void>();
   let pendingToken: Promise<string | null> | null = null;
   let anonId: Promise<string> | null = null;
 
@@ -83,6 +97,11 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
       .then(() => options.getUserToken?.() ?? null)
       .then((token) => {
         userToken = token;
+        const next = identityOf(token);
+        if (next !== identity) {
+          identity = next;
+          for (const listener of identityListeners) listener();
+        }
         return token;
       })
       .finally(() => {
@@ -124,7 +143,10 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
       timeout.clear();
     }
     if (res.status === 401 && !retried && options.getUserToken) {
-      const err = await res.clone().json().catch(() => ({})) as { error?: string };
+      const err = (await res
+        .clone()
+        .json()
+        .catch(() => ({}))) as { error?: string };
       if (err.error === 'user_token_expired') {
         userToken = null;
         await refreshToken();
@@ -162,10 +184,8 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
     getPost: (id) => request<Post>('GET', `/v1/posts/${id}`),
     createPost: (input: CreatePostInput) => request<Post>('POST', '/v1/posts', input),
     vote: (postId, value: VoteValue) => request<Post>('POST', `/v1/posts/${postId}/vote`, { value }),
-    listComments: (postId, cursor) =>
-      request<Page<Comment>>('GET', `/v1/posts/${postId}/comments${toQuery({ cursor })}`),
-    createComment: (postId, input: CreateCommentInput) =>
-      request<Comment>('POST', `/v1/posts/${postId}/comments`, input),
+    listComments: (postId, cursor) => request<Page<Comment>>('GET', `/v1/posts/${postId}/comments${toQuery({ cursor })}`),
+    createComment: (postId, input: CreateCommentInput) => request<Comment>('POST', `/v1/posts/${postId}/comments`, input),
     upload: (file: UploadFile) => {
       const form = new FormData();
       // RN's FormData accepts { uri, name, type }; the DOM typing does not know that.
@@ -176,5 +196,9 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
     getUpdates: () => request<Updates>('GET', '/v1/me/updates'),
     markUpdatesSeen: () => request<void>('POST', '/v1/me/updates/seen'),
     admin,
+    subscribeIdentity: (listener) => {
+      identityListeners.add(listener);
+      return () => void identityListeners.delete(listener);
+    },
   };
 }

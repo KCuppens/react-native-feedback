@@ -60,6 +60,9 @@ CREATE INDEX posts_board ON posts (project_id, moderation, score DESC);
 CREATE INDEX posts_new ON posts (project_id, moderation, created_at DESC);
 CREATE INDEX posts_status ON posts (project_id, status);
 CREATE INDEX posts_author ON posts (author_id);
+-- Merges look up and repoint children; deletes check the SET NULL references.
+CREATE INDEX posts_merged ON posts (merged_into_id) WHERE merged_into_id IS NOT NULL;
+CREATE INDEX posts_category ON posts (category_id) WHERE category_id IS NOT NULL;
 
 CREATE TABLE votes (
   post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
@@ -96,6 +99,7 @@ CREATE TABLE attachments (
 );
 CREATE INDEX attachments_post ON attachments (post_id);
 CREATE INDEX attachments_comment ON attachments (comment_id);
+CREATE INDEX attachments_project ON attachments (project_id);
 -- Lets the hourly sweep find uploads that were never attached to a post.
 CREATE INDEX attachments_unclaimed ON attachments (created_at) WHERE post_id IS NULL;
 

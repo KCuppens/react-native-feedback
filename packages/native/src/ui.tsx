@@ -101,7 +101,5 @@ export function useUI(): UI {
   const ctx = useContext(NativeUIContext);
   const { theme, strings } = useFeedbackContext();
   const fallback = useMemo(() => (ctx ? null : makeBaseStyles(theme)), [ctx, theme]);
-  return ctx
-    ? { ...ctx, theme, strings }
-    : { styles: fallback!, components: {}, hideHeader: false, theme, strings };
+  return ctx ? { ...ctx, theme, strings } : { styles: fallback!, components: {}, hideHeader: false, theme, strings };
 }

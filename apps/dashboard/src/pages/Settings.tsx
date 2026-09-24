@@ -15,7 +15,11 @@ const TOGGLES: { key: keyof ProjectSettings; label: string; help: string }[] = [
   { key: 'roadmapEnabled', label: 'Show roadmap', help: 'Planned / In progress / Done columns.' },
   { key: 'inAppAdmin', label: 'In-app admin', help: 'Signed users with isAdmin: true can moderate inside the widget.' },
   { key: 'publicBoard', label: 'Public board page', help: 'Read-and-vote page at /p/<slug>.' },
-  { key: 'notifySubmitter', label: 'Email submitters', help: 'On approval, decline and status changes (needs their email in the signed token).' },
+  {
+    key: 'notifySubmitter',
+    label: 'Email submitters',
+    help: 'On approval, decline and status changes (needs their email in the signed token).',
+  },
 ];
 
 export function SettingsPage({ project }: { project: ProjectSummary }) {
@@ -85,7 +89,11 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
                   onChange={(e) => setAdminEmail(e.target.value)}
                   placeholder="Defaults to ADMIN_EMAIL on the worker"
                 />
-                <button onClick={() => save.mutate({ adminEmail: (adminEmail ?? '').trim() || null })} disabled={adminEmail === null}>
+                <button
+                  type="button"
+                  onClick={() => save.mutate({ adminEmail: (adminEmail ?? '').trim() || null })}
+                  disabled={adminEmail === null}
+                >
                   Save
                 </button>
               </div>
@@ -159,7 +167,7 @@ const token = await signFeedbackUser({ id: user.id, name: user.name, email: user
         <h3>Project</h3>
         <div className="row">
           <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Project name" />
-          <button onClick={() => rename.mutate()} disabled={!name.trim() || name === project.name}>
+          <button type="button" onClick={() => rename.mutate()} disabled={!name.trim() || name === project.name}>
             Rename
           </button>
         </div>
@@ -170,7 +178,12 @@ const token = await signFeedbackUser({ id: user.id, name: user.name, email: user
           </p>
           <div className="row">
             <input value={confirmDelete} onChange={(e) => setConfirmDelete(e.target.value)} aria-label="Confirm slug" />
-            <button className="danger" disabled={confirmDelete !== project.slug || remove.isPending} onClick={() => remove.mutate()}>
+            <button
+              type="button"
+              className="danger"
+              disabled={confirmDelete !== project.slug || remove.isPending}
+              onClick={() => remove.mutate()}
+            >
               Delete forever
             </button>
           </div>

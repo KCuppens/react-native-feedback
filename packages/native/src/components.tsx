@@ -1,4 +1,4 @@
-import { describeError, formatRelativeTime, type Post, type PostStatus } from '@kobecuppens/feedback-core';
+import { describeError, formatRelativeTime, type FeedbackStrings, type Post, type PostStatus } from '@kobecuppens/feedback-core';
 import { memo, useEffect } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Image, Platform, Pressable, Text, View } from 'react-native';
 import {
@@ -164,7 +164,13 @@ export function Header(props: HeaderProps) {
   return (
     <View style={styles.header}>
       {props.onBack && (
-        <Pressable accessibilityRole="button" accessibilityLabel={strings.post.back} onPress={props.onBack} style={styles.backButton} hitSlop={8}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={strings.post.back}
+          onPress={props.onBack}
+          style={styles.backButton}
+          hitSlop={8}
+        >
           <Text style={styles.backButtonText}>‹ {strings.post.back}</Text>
         </Pressable>
       )}
@@ -190,52 +196,64 @@ export function Chip({ label, active, onPress }: { label: string; active: boolea
   );
 }
 
+function statusLabel(post: Post, strings: FeedbackStrings): string {
+  if (post.moderation === 'pending') return strings.moderation.pending;
+  if (post.moderation === 'declined') return strings.moderation.declined;
+  return strings.status[post.status as PostStatus];
+}
+
 /** Moderation state for the author's own posts, otherwise the public status. */
 export function PostStatusPill({ post }: { post: Post }) {
   const { strings } = useUI();
-  if (post.moderation === 'pending') return <StatusPill status="pending" label={strings.moderation.pending} />;
-  if (post.moderation === 'declined') return <StatusPill status="declined" label={strings.moderation.declined} />;
-  return <StatusPill status={post.status} label={strings.status[post.status as PostStatus]} />;
+  const status = post.moderation === 'approved' ? post.status : post.moderation;
+  return <StatusPill status={status} label={statusLabel(post, strings)} />;
 }
 
 /**
  * Memoized on data only: lists pass callbacks that delegate to the latest handlers, so
  * ignoring their identity keeps every visible card from re-rendering on each keystroke or vote.
  */
-export const PostCard = memo(function PostCard(props: PostCardProps) {
-  const { components, styles, strings } = useUI();
-  if (components.PostCard) return <components.PostCard {...props} />;
-  const { post } = props;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={post.title}
-      onPress={props.onPress}
-      style={({ pressed }) => [styles.card, post.moderation !== 'approved' && styles.cardPending, pressed && { opacity: 0.85 }]}
-    >
-      <VoteControl
-        post={post}
-        onVote={props.onVote}
-        disabled={!props.canVote || post.moderation !== 'approved'}
-        showDownvote={props.canDownvote}
-      />
-      <View style={styles.cardBody}>
-        <Text style={styles.cardTitle} numberOfLines={2}>
-          {post.title}
-        </Text>
-        {post.body ? (
-          <Text style={styles.cardExcerpt} numberOfLines={2}>
-            {post.body}
+export const PostCard = memo(
+  function PostCard(props: PostCardProps) {
+    const { components, styles, strings } = useUI();
+    if (components.PostCard) return <components.PostCard {...props} />;
+    const { post } = props;
+    return (
+      // The card itself is not pressable: an accessible parent would swallow the vote buttons
+      // for VoiceOver. Votes sit beside a pressable body whose label reads the whole summary.
+      <View style={[styles.card, post.moderation !== 'approved' && styles.cardPending]}>
+        <VoteControl
+          post={post}
+          onVote={props.onVote}
+          disabled={!props.canVote || post.moderation !== 'approved'}
+          showDownvote={props.canDownvote}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={[post.title, statusLabel(post, strings), post.category?.name, strings.post.comments(post.commentCount)]
+            .filter(Boolean)
+            .join(', ')}
+          onPress={props.onPress}
+          style={({ pressed }) => [styles.cardBody, pressed && { opacity: 0.85 }]}
+        >
+          <Text style={styles.cardTitle} numberOfLines={2}>
+            {post.title}
           </Text>
-        ) : null}
-        <View style={styles.cardMeta}>
-          <PostStatusPill post={post} />
-          {post.category && <CategoryPill name={post.category.name} color={post.category.color} />}
-          <Text style={styles.cardMetaText}>
-            {strings.post.comments(post.commentCount)} · {formatRelativeTime(strings, post.createdAt)}
-          </Text>
-        </View>
+          {post.body ? (
+            <Text style={styles.cardExcerpt} numberOfLines={2}>
+              {post.body}
+            </Text>
+          ) : null}
+          <View style={styles.cardMeta}>
+            <PostStatusPill post={post} />
+            {post.category && <CategoryPill name={post.category.name} color={post.category.color} />}
+            <Text style={styles.cardMetaText}>
+              {strings.post.comments(post.commentCount)} · {formatRelativeTime(strings, post.createdAt)}
+            </Text>
+          </View>
+        </Pressable>
       </View>
-    </Pressable>
-  );
-}, (a, b) => a.post === b.post && a.canVote === b.canVote && a.canDownvote === b.canDownvote);
+    );
+  },
+  (a, b) => a.post === b.post && a.canVote === b.canVote && a.canDownvote === b.canDownvote,
+);

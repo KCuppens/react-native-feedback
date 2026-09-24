@@ -67,9 +67,7 @@ function PublicBoard() {
         userToken={userToken}
         locale={locale}
         style={{ flex: 1 }}
-        headerAccessory={
-          <h1 style={{ margin: 0, padding: '20px 16px 8px', font: '700 22px var(--fb-font-heading)' }}>{project.name}</h1>
-        }
+        headerAccessory={<h1 style={{ margin: 0, padding: '20px 16px 8px', font: '700 22px var(--fb-font-heading)' }}>{project.name}</h1>}
       />
     </main>
   );

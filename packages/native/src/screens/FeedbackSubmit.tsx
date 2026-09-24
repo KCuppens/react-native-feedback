@@ -28,9 +28,7 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
   const limits = config?.limits;
   const titleMin = limits?.titleMin ?? 3;
   const picker = pickImage ?? defaultPickImage;
-  const canAttach =
-    !!features?.attachments && !!picker && attachments.length < (limits?.attachmentsPerPost ?? 4);
-
+  const canAttach = !!features?.attachments && !!picker && attachments.length < (limits?.attachmentsPerPost ?? 4);
 
   const attach = async () => {
     if (!picker) return;
@@ -129,9 +127,7 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
             ))}
           </View>
         )}
-        {canAttach && (
-          <Button label={strings.submit.attach} variant="secondary" onPress={() => void attach()} loading={upload.isPending} />
-        )}
+        {canAttach && <Button label={strings.submit.attach} variant="secondary" onPress={() => void attach()} loading={upload.isPending} />}
         <InlineError error={error} />
         <Button
           label={create.isPending ? strings.submit.submitting : strings.submit.submit}

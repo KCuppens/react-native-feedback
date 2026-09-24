@@ -18,7 +18,11 @@ describe('<FeedbackBoard>', () => {
   it('renders posts sorted by votes with tabs from server features', async () => {
     render(<FeedbackBoard adapter={seed()} locale="en" />);
     await screen.findByText('Dark mode');
-    const titles = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label')).filter((l) => ['Dark mode', 'Widgets', 'Crash on launch'].includes(l ?? ''));
+    // Card labels read "<title>, <status>, …"; keep the titles.
+    const titles = screen
+      .getAllByRole('button')
+      .map((b) => b.getAttribute('aria-label')?.split(', ')[0])
+      .filter((l) => ['Dark mode', 'Widgets', 'Crash on launch'].includes(l ?? ''));
     expect(titles).toEqual(['Dark mode', 'Widgets', 'Crash on launch']);
     expect(screen.getByRole('tab', { name: 'Roadmap' })).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Updates' })).toBeTruthy();
@@ -52,7 +56,7 @@ describe('<FeedbackBoard>', () => {
 
   it('opens a post, comments, and returns', async () => {
     render(<FeedbackBoard adapter={seed()} locale="en" />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Dark mode' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Dark mode,/ }));
     // The list stays mounted (hidden) underneath, so its excerpt is in the DOM too.
     await waitFor(() => expect(screen.getAllByText('Please')).toHaveLength(2));
     fireEvent.change(screen.getByLabelText('Add a comment…'), { target: { value: 'Yes please' } });
@@ -112,6 +116,14 @@ describe('styling', () => {
     expect(PostCard).toHaveBeenCalled();
   });
 
+  it('gives each card a spoken summary and keeps its vote buttons separately reachable', async () => {
+    render(<FeedbackBoard adapter={seed()} locale="en" />);
+    const card = await screen.findByRole('button', { name: 'Crash on launch, Open, Bug, 0 comments' });
+    // The vote buttons are siblings of the card body, not inside it.
+    expect(card.querySelector('[aria-label="Upvote"]')).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Upvote' })).toHaveLength(3);
+  });
+
   it('localizes and accepts string overrides', async () => {
     render(<FeedbackBoard adapter={seed()} locale="nl-BE" strings={{ tabs: { board: 'Ideeën' } }} />);
     await screen.findByRole('tab', { name: 'Ideeën' });
@@ -129,7 +141,7 @@ describe('composable screens', () => {
         <FeedbackList onOpenPost={onOpen} hideToolbar />
       </FeedbackProvider>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Widgets' }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Widgets,/ }));
     expect(onOpen.mock.calls[0]![0].id).toBe('p2');
     expect(screen.queryByLabelText('Search feedback…')).toBeNull();
     await act(async () => {
