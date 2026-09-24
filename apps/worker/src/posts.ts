@@ -1,7 +1,7 @@
 import type { Attachment, Comment, Moderation, Page, Post, PostSort, PostStatus, VoteValue } from '@kobecuppens/feedback-core';
 import { POST_STATUSES } from '@kobecuppens/feedback-core';
 import type { Env } from './env';
-import { fail, placeholders } from './util';
+import { fail, fileUrl, parseCursor, placeholders } from './util';
 
 interface PostRow {
   id: string;
@@ -61,10 +61,6 @@ FROM posts p
 JOIN end_users a ON a.id = p.author_id
 LEFT JOIN categories c ON c.id = p.category_id
 LEFT JOIN votes v ON v.post_id = p.id AND v.user_id = ?`;
-
-export function fileUrl(origin: string, id: string): string {
-  return `${origin}/v1/files/${id}`;
-}
 
 function toAttachment(origin: string, row: AttachmentRow): Attachment {
   return { id: row.id, url: fileUrl(origin, row.id), mime: row.mime, width: row.width, height: row.height, bytes: row.bytes };
@@ -199,6 +195,17 @@ export function parseStatuses(raw: string | undefined): PostStatus[] | undefined
   return list.length ? list : undefined;
 }
 
+/** The list filters shared by the public board and the admin list, from the query string. */
+export function listFilters(query: (name: string) => string | undefined) {
+  return {
+    sort: parseSort(query('sort')),
+    statuses: parseStatuses(query('status')),
+    categoryId: query('category') || undefined,
+    q: query('q')?.trim().slice(0, 100) || undefined,
+    offset: parseCursor(query('cursor')),
+  };
+}
+
 export function parseSort(raw: string | undefined): PostSort {
   return raw === 'new' || raw === 'trending' ? raw : 'top';
 }
@@ -322,6 +329,41 @@ export async function listComments(env: Env, origin: string, postId: string, off
     items: await hydrateComments(env, origin, results.slice(0, limit)),
     nextCursor: hasMore ? String(offset + limit) : null,
   };
+}
+
+/**
+ * Everything that creating a comment writes, in batch order, ending with its read-back:
+ * the row, claimed attachments, the post's comment count, the official-reply marker and
+ * the outbox event.
+ */
+export function commentWriteBatch(
+  env: Env,
+  c: {
+    id: string;
+    postId: string;
+    authorId: string;
+    body: string;
+    official: boolean;
+    ts: number;
+    claim: D1PreparedStatement | null;
+    event: D1PreparedStatement;
+  },
+): D1PreparedStatement[] {
+  return [
+    env.DB.prepare('INSERT INTO comments (id, post_id, author_id, body, is_official, created_at) VALUES (?, ?, ?, ?, ?, ?)').bind(
+      c.id,
+      c.postId,
+      c.authorId,
+      c.body,
+      c.official ? 1 : 0,
+      c.ts,
+    ),
+    ...(c.claim ? [c.claim] : []),
+    recountComments(env, c.postId),
+    ...(c.official ? [env.DB.prepare('UPDATE posts SET last_official_reply_at = ? WHERE id = ?').bind(c.ts, c.postId)] : []),
+    c.event,
+    ...commentQueries(env, c.id),
+  ];
 }
 
 /** Reads for one comment, appended to the write batch that creates it (see postQueries). */

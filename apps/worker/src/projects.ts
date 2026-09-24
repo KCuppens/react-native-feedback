@@ -1,6 +1,9 @@
 import { BOARD_LIMITS, DEFAULT_PROJECT_SETTINGS, type ProjectSettings, type ProjectSummary } from '@kobecuppens/feedback-core';
 import type { Env, Project, ProjectRow } from './env';
+import { SLUG_MAX } from './keys.mjs';
 import { fail } from './util';
+
+export { slugify } from './keys.mjs';
 
 export const LIMITS = {
   ...BOARD_LIMITS,
@@ -10,7 +13,7 @@ export const LIMITS = {
   categoryNameMax: 40,
   categoryColorMax: 32,
   projectNameMax: 80,
-  slugMax: 48,
+  slugMax: SLUG_MAX,
   /** Bounds each event's delivery fan-out (see handleEventBatch). */
   webhooksPerProject: 10,
   postsPerHour: 10,
@@ -34,7 +37,7 @@ const BOOLEAN_SETTINGS = [
   'notifySubmitter',
 ] as const satisfies readonly (keyof ProjectSettings)[];
 
-export function parseSettings(raw: string): ProjectSettings {
+function parseSettings(raw: string): ProjectSettings {
   let stored: Partial<ProjectSettings> = {};
   try {
     stored = JSON.parse(raw) as Partial<ProjectSettings>;
@@ -143,16 +146,4 @@ export function toSummary(project: Project, pendingCount: number): ProjectSummar
     pendingCount,
     createdAt: project.createdAt,
   };
-}
-
-export function slugify(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .normalize('NFKD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, LIMITS.slugMax) || 'project'
-  );
 }

@@ -4,6 +4,9 @@
  */
 import { base64UrlDecodeToString, base64UrlEncode, textEncoder, timingSafeEqual, toHex } from './encoding';
 
+/** Constant-time string compare and hex encoding, for checking your own signatures. */
+export { timingSafeEqual, toHex };
+
 export interface FeedbackUserClaims {
   /** Stable user id in your app. */
   id: string;

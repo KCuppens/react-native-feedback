@@ -61,6 +61,16 @@ export interface Project {
   createdAt: number;
 }
 
+export interface WebhookRow {
+  id: string;
+  project_id: string;
+  url: string;
+  secret: string;
+  /** JSON array of FeedbackEventType. */
+  events: string;
+  created_at: number;
+}
+
 export interface EndUserRow {
   id: string;
   project_id: string;

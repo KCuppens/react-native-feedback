@@ -16,19 +16,9 @@ import type {
 } from '../types';
 import { applyVote } from '../vote';
 import { useFeedbackContext } from './context';
+import { feedbackKeys } from './keys';
 
-const root = (scope: string) => ['rnf', scope] as const;
-export const feedbackKeys = {
-  all: root,
-  config: (scope: string) => [...root(scope), 'config'] as const,
-  posts: (scope: string, params?: ListPostsParams) => [...root(scope), 'posts', params ?? {}] as const,
-  postsPrefix: (scope: string) => [...root(scope), 'posts'] as const,
-  post: (scope: string, id: string) => [...root(scope), 'post', id] as const,
-  comments: (scope: string, postId: string) => [...root(scope), 'comments', postId] as const,
-  roadmap: (scope: string) => [...root(scope), 'roadmap'] as const,
-  updates: (scope: string) => [...root(scope), 'updates'] as const,
-  queue: (scope: string) => [...root(scope), 'queue'] as const,
-};
+export { feedbackKeys };
 
 export function useConfig() {
   const { adapter, scope } = useFeedbackContext();

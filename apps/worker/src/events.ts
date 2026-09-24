@@ -1,6 +1,6 @@
 import { FEEDBACK_EVENT_TYPES, locales, type FeedbackEventType, type WebhookConfig } from '@kobecuppens/feedback-core';
 import { signWebhook } from '@kobecuppens/feedback-core/server';
-import type { EndUserRow, Env, EventMessage } from './env';
+import type { EndUserRow, Env, EventMessage, WebhookRow } from './env';
 import { getPost, publicPost, type PostRecord } from './posts';
 import { findProjectById } from './projects';
 import { createLimiter, escapeHtml, flag, log, newId, now, type Limiter } from './util';
@@ -66,21 +66,15 @@ export function prepareEvent(env: Env, input: EventInput, onlyIf?: { sql: string
  * processed in the background of the current request instead.
  */
 export async function dispatchEvent(env: Env, ctx: { waitUntil(promise: Promise<unknown>): void } | undefined, id: string): Promise<void> {
-  if (env.EVENTS) {
-    // The change is already committed and the outbox row is stored: if the send fails, the
-    // hourly sweep (maintenance.ts) delivers it. So the response never waits on the queue.
-    const send = env.EVENTS.send({ eventId: id }).catch((error: unknown) =>
-      log('error', 'event enqueue failed', { eventId: id, error: String(error) }),
-    );
-    if (ctx) ctx.waitUntil(send);
-    else await send;
-  } else {
-    const work = processEvent(env, id).catch((error: unknown) =>
-      log('error', 'event processing failed', { eventId: id, error: String(error) }),
-    );
-    if (ctx) ctx.waitUntil(work);
-    else await work;
-  }
+  // Either way the change is already committed and the outbox row stored: if the send fails,
+  // the hourly sweep (maintenance.ts) delivers it, so the response never waits on delivery.
+  const work = env.EVENTS
+    ? env.EVENTS.send({ eventId: id }).catch((error: unknown) =>
+        log('error', 'event enqueue failed', { eventId: id, error: String(error) }),
+      )
+    : processEvent(env, id).catch((error: unknown) => log('error', 'event processing failed', { eventId: id, error: String(error) }));
+  if (ctx) ctx.waitUntil(work);
+  else await work;
 }
 
 /** Exponential backoff with jitter, capped at 5 minutes, so retries outlast short outages. */
@@ -176,35 +170,17 @@ async function deliverWebhooks(
   body: string,
   limit: Limiter,
 ): Promise<void> {
-  const { results } = await env.DB.prepare('SELECT * FROM webhooks WHERE project_id = ?')
-    .bind(projectId)
-    .all<{ id: string; url: string; secret: string; events: string }>();
+  const { results } = await env.DB.prepare('SELECT * FROM webhooks WHERE project_id = ?').bind(projectId).all<WebhookRow>();
   const targets = results.filter((w) => parseEventTypes(w.events).includes(type));
   await Promise.allSettled(
     targets.map(async (hook) => {
+      const signature = await signWebhook(hook.secret, body);
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const signature = await signWebhook(hook.secret, body);
-          // The timeout starts once a connection slot is free, not while waiting for one.
-          const res = await limit(async () => {
-            const response = await fetch(hook.url, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'User-Agent': 'react-native-feedback-webhooks/1',
-                'X-Feedback-Event': type,
-                'X-Feedback-Signature': signature,
-              },
-              body,
-              signal: AbortSignal.timeout(10_000),
-            });
-            // Only the status matters; release the connection before freeing the slot.
-            await response.body?.cancel();
-            return response;
-          });
-          if (res.ok) return;
-          log('warn', 'webhook non-2xx', { eventId, projectId, type, hookId: hook.id, attempt, status: res.status });
-          if (!isRetryableStatus(res.status)) return;
+          const status = await postWebhook(hook.url, type, body, signature, limit);
+          if (status >= 200 && status < 300) return;
+          log('warn', 'webhook non-2xx', { eventId, projectId, type, hookId: hook.id, attempt, status });
+          if (!isRetryableStatus(status)) return;
         } catch (error) {
           log('warn', 'webhook failed', { eventId, projectId, type, hookId: hook.id, attempt, error: String(error) });
         }
@@ -214,7 +190,28 @@ async function deliverWebhooks(
   );
 }
 
-export function toWebhookConfig(row: { id: string; url: string; secret: string; events: string; created_at: number }): WebhookConfig {
+/** One delivery attempt; resolves to the HTTP status. */
+async function postWebhook(url: string, type: FeedbackEventType, body: string, signature: string, limit: Limiter): Promise<number> {
+  // The timeout starts once a connection slot is free, not while waiting for one.
+  return limit(async () => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'react-native-feedback-webhooks/1',
+        'X-Feedback-Event': type,
+        'X-Feedback-Signature': signature,
+      },
+      body,
+      signal: AbortSignal.timeout(10_000),
+    });
+    // Only the status matters; release the connection before freeing the slot.
+    await response.body?.cancel();
+    return response.status;
+  });
+}
+
+export function toWebhookConfig(row: Omit<WebhookRow, 'project_id'>): WebhookConfig {
   return { id: row.id, url: row.url, secret: row.secret, events: parseEventTypes(row.events), createdAt: row.created_at };
 }
 
@@ -231,44 +228,50 @@ interface EmailContext {
   origin: string;
 }
 
+type EmailMessage = { to: string; subject: string; text: string; html: string };
+
 async function sendEmails(env: Env, ctx: EmailContext): Promise<void> {
   if (!flag(env, 'FEATURE_EMAIL') || !env.EMAIL || !ctx.post) return;
-  const from = { email: env.FROM_EMAIL ?? 'feedback@example.com', name: env.FROM_NAME ?? `${ctx.project.name} Feedback` };
-  const { post } = ctx;
-
-  if (ctx.type === 'post.created' && post.moderation === 'pending') {
-    const to = ctx.project.settings.adminEmail ?? env.ADMIN_EMAIL;
-    if (!to) return;
-    const link = `${ctx.origin}/admin/#/projects/${ctx.project.id}/queue`;
-    await env.EMAIL.send({
-      to,
-      from,
-      subject: `[${ctx.project.name}] New feedback to review: ${post.title}`,
-      text: `${post.title}\n\n${post.body}\n\nReview it: ${link}`,
-      html: `<h2>${escapeHtml(post.title)}</h2><p style="white-space:pre-wrap">${escapeHtml(post.body)}</p><p><a href="${escapeHtml(link)}">Review in the dashboard</a></p>`,
-    });
-    return;
-  }
-
-  const author = ctx.author;
-  if (!ctx.project.settings.notifySubmitter || !author?.email || author.id === ctx.actorId) return;
-
-  let headline: string | null = null;
-  if (ctx.type === 'post.approved') headline = 'Your feedback is now public';
-  else if (ctx.type === 'post.declined') headline = 'Your feedback was declined';
-  else if (ctx.type === 'post.status_changed' && post.moderation === 'approved') {
-    headline = `Your feedback is now "${locales.en.status[post.status]}"`;
-  }
-  if (!headline) return;
-
-  const reason = ctx.type === 'post.declined' && post.declineReason ? `\n\nReason: ${post.declineReason}` : '';
+  const message = ctx.type === 'post.created' ? moderatorEmail(env, ctx, ctx.post) : submitterEmail(ctx, ctx.post);
+  if (!message) return;
   await env.EMAIL.send({
-    to: author.email,
-    from,
-    subject: `[${ctx.project.name}] ${headline}`,
-    text: `${headline}: "${post.title}".${reason}\n\nThanks for helping improve ${ctx.project.name}!`,
-    html: `<p>${escapeHtml(headline)}: <strong>${escapeHtml(post.title)}</strong>.</p>${
-      reason ? `<p>Reason: ${escapeHtml(post.declineReason!)}</p>` : ''
-    }<p>Thanks for helping improve ${escapeHtml(ctx.project.name)}!</p>`,
+    ...message,
+    from: { email: env.FROM_EMAIL ?? 'feedback@example.com', name: env.FROM_NAME ?? `${ctx.project.name} Feedback` },
   });
+}
+
+/** A new post waiting for review goes to the project's (or the deployment's) admin address. */
+function moderatorEmail(env: Env, ctx: EmailContext, post: PostRecord): EmailMessage | null {
+  const to = ctx.project.settings.adminEmail ?? env.ADMIN_EMAIL;
+  if (post.moderation !== 'pending' || !to) return null;
+  const link = `${ctx.origin}/admin/#/projects/${ctx.project.id}/queue`;
+  return {
+    to,
+    subject: `[${ctx.project.name}] New feedback to review: ${post.title}`,
+    text: `${post.title}\n\n${post.body}\n\nReview it: ${link}`,
+    html: `<h2>${escapeHtml(post.title)}</h2><p style="white-space:pre-wrap">${escapeHtml(post.body)}</p><p><a href="${escapeHtml(link)}">Review in the dashboard</a></p>`,
+  };
+}
+
+const SUBMITTER_HEADLINES: Partial<Record<FeedbackEventType, (post: PostRecord) => string | null>> = {
+  'post.approved': () => 'Your feedback is now public',
+  'post.declined': () => 'Your feedback was declined',
+  'post.status_changed': (post) => (post.moderation === 'approved' ? `Your feedback is now "${locales.en.status[post.status]}"` : null),
+};
+
+/** Tell the author what happened to their post, unless they did it themselves or opted out. */
+function submitterEmail(ctx: EmailContext, post: PostRecord): EmailMessage | null {
+  const author = ctx.author;
+  if (!ctx.project.settings.notifySubmitter || !author?.email || author.id === ctx.actorId) return null;
+  const headline = SUBMITTER_HEADLINES[ctx.type]?.(post);
+  if (!headline) return null;
+  const reason = ctx.type === 'post.declined' ? post.declineReason : null;
+  return {
+    to: author.email,
+    subject: `[${ctx.project.name}] ${headline}`,
+    text: `${headline}: "${post.title}".${reason ? `\n\nReason: ${reason}` : ''}\n\nThanks for helping improve ${ctx.project.name}!`,
+    html: `<p>${escapeHtml(headline)}: <strong>${escapeHtml(post.title)}</strong>.</p>${
+      reason ? `<p>Reason: ${escapeHtml(reason)}</p>` : ''
+    }<p>Thanks for helping improve ${escapeHtml(ctx.project.name)}!</p>`,
+  };
 }

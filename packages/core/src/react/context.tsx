@@ -6,6 +6,7 @@ import { useStableValue } from './stable';
 import { resolveStrings, type FeedbackStrings, type FeedbackStringsInput } from '../i18n';
 import { resolveTheme, type FeedbackTheme, type ThemeProp } from '../theme';
 import { FeedbackApiError, type ClientFeatures, type Post } from '../types';
+import { feedbackKeys } from './keys';
 
 export type FeedbackUIEvent =
   | { type: 'post_opened'; post: Post }
@@ -107,7 +108,10 @@ export function FeedbackProvider(props: FeedbackProviderProps) {
   const client = props.queryClient ?? ownClient;
   // A different user must never see the previous one's votes, posts or admin config.
   const scope = value.scope;
-  useEffect(() => adapter.subscribeIdentity?.(() => void client.resetQueries({ queryKey: ['rnf', scope] })), [adapter, client, scope]);
+  useEffect(
+    () => adapter.subscribeIdentity?.(() => void client.resetQueries({ queryKey: feedbackKeys.all(scope) })),
+    [adapter, client, scope],
+  );
 
   return (
     <QueryClientProvider client={client}>

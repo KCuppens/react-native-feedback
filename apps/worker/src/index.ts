@@ -7,7 +7,7 @@ import { findProjectBySlug } from './projects';
 import { adminRoutes } from './routes/admin';
 import { dashboardRoutes } from './routes/dashboard';
 import { publicRoutes } from './routes/public';
-import { ctxOf, fail, flag, log } from './util';
+import { ctxOf, edgeCache, fail, flag, log, requireFlag } from './util';
 
 export const app = new Hono<AppEnv>();
 
@@ -54,7 +54,7 @@ app.get('/v1/health', async (c) => {
 // Attachments are fetched by <img> tags, which cannot send headers: ids are unguessable UUIDs.
 // Content never changes for an id, so the edge cache serves repeat views without D1 or R2.
 app.get('/v1/files/:id', async (c) => {
-  const edge = typeof caches === 'undefined' ? undefined : (caches as unknown as { default: Cache }).default;
+  const edge = edgeCache();
   const cached = await edge?.match(c.req.raw);
   if (cached) return cached;
   const row = await c.env.DB.prepare('SELECT r2_key, mime FROM attachments WHERE id = ?')
@@ -76,7 +76,10 @@ app.get('/v1/files/:id', async (c) => {
   if (edge) {
     const edgeCopy = new Response(res.clone().body, res);
     edgeCopy.headers.set('Cache-Control', 'public, max-age=3600');
-    const put = edge.put(c.req.raw, edgeCopy).catch(() => undefined);
+    // Best effort, but logged: a put that keeps failing would otherwise disable caching unseen.
+    const put = edge
+      .put(c.req.raw, edgeCopy)
+      .catch((error: unknown) => log('warn', 'edge cache put failed', { requestId: c.get('requestId'), error: String(error) }));
     const ctx = ctxOf(c);
     if (ctx) ctx.waitUntil(put);
   }
@@ -84,7 +87,7 @@ app.get('/v1/files/:id', async (c) => {
 });
 
 app.get('/v1/public/projects/:slug', async (c) => {
-  if (!flag(c.env, 'FEATURE_PUBLIC_BOARD')) fail(404, 'not_found');
+  requireFlag(c.env, 'FEATURE_PUBLIC_BOARD');
   const project = await findProjectBySlug(c.env, c.req.param('slug'));
   if (!project?.settings.publicBoard) fail(404, 'not_found');
   // Public, non-secret fields; a short cache saves the board's first request on repeat visits.
@@ -123,15 +126,15 @@ async function serveSpa(c: Context<AppEnv>, prefix: '/admin/' | '/p/') {
 }
 
 app.get('/admin', (c) => {
-  if (!flag(c.env, 'FEATURE_DASHBOARD')) fail(404, 'not_found');
+  requireFlag(c.env, 'FEATURE_DASHBOARD');
   return c.redirect('/admin/', 301);
 });
 app.get('/admin/*', (c) => {
-  if (!flag(c.env, 'FEATURE_DASHBOARD')) fail(404, 'not_found');
+  requireFlag(c.env, 'FEATURE_DASHBOARD');
   return serveSpa(c, '/admin/');
 });
 app.get('/p/*', (c) => {
-  if (!flag(c.env, 'FEATURE_PUBLIC_BOARD')) fail(404, 'not_found');
+  requireFlag(c.env, 'FEATURE_PUBLIC_BOARD');
   return serveSpa(c, '/p/');
 });
 app.get('/', (c) => (flag(c.env, 'FEATURE_DASHBOARD') ? c.redirect('/admin/') : c.json({ ok: true })));

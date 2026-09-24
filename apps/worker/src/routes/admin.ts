@@ -1,17 +1,16 @@
 import { FEEDBACK_EVENT_TYPES, MODERATION_STATES, POST_STATUSES, type Moderation, type PostStatus } from '@kobecuppens/feedback-core';
 import { Hono, type Context } from 'hono';
-import type { AppEnv } from '../env';
+import type { AppEnv, WebhookRow } from '../env';
 import { adminActor, adminAuth, getViewer, requireFullAdmin } from '../auth';
 import { dispatchEvent, prepareEvent, toWebhookConfig, type PendingEvent } from '../events';
 import {
   attachmentKeysQuery,
   commentFromResults,
-  commentQueries,
+  commentWriteBatch,
   getPost,
   listComments,
   listPosts,
-  parseSort,
-  parseStatuses,
+  listFilters,
   postFromResults,
   postQueries,
   publicPost,
@@ -40,10 +39,18 @@ export const adminRoutes = new Hono<AppEnv>();
 
 adminRoutes.use('*', adminAuth);
 
+/**
+ * The in-app admin's own user id (their vote and ownership come back with each post, and
+ * events record them as the actor); null for the dashboard and the admin API.
+ */
+async function moderatorId(c: Context<AppEnv>): Promise<string | null> {
+  return c.get('adminLevel') === 'moderator' ? ((await getViewer(c))?.id ?? null) : null;
+}
+
 async function loadPost(c: Context<AppEnv>, id: string): Promise<PostRecord> {
   // In-app admins get their own vote/ownership back, since the widget caches this response.
-  const viewer = c.get('adminLevel') === 'moderator' ? await getViewer(c) : null;
-  const post = await getPost(c.env, originOf(c), c.get('project').id, id, viewer?.id ?? null);
+  const viewerId = await moderatorId(c);
+  const post = await getPost(c.env, originOf(c), c.get('project').id, id, viewerId);
   if (!post) fail(404, 'post_not_found');
   return post;
 }
@@ -53,9 +60,9 @@ async function loadPost(c: Context<AppEnv>, id: string): Promise<PostRecord> {
  * D1 round trip. `results` keeps the write statements' results at their usual indexes.
  */
 async function writeAndReload(c: Context<AppEnv>, statements: D1PreparedStatement[], postId: string) {
-  const viewer = c.get('adminLevel') === 'moderator' ? await getViewer(c) : null;
-  const results = await c.env.DB.batch([...statements, ...postQueries(c.env, c.get('project').id, postId, viewer?.id ?? null)]);
-  const post = postFromResults(originOf(c), viewer?.id ?? null, results);
+  const viewerId = await moderatorId(c);
+  const results = await c.env.DB.batch([...statements, ...postQueries(c.env, c.get('project').id, postId, viewerId)]);
+  const post = postFromResults(originOf(c), viewerId, results);
   return { results, post: post && publicPost(post) };
 }
 
@@ -76,12 +83,8 @@ async function adminEvent(
   data?: Record<string, unknown>,
   onlyIf?: { sql: string; params: (string | number)[] },
 ): Promise<PendingEvent> {
-  const actor = c.get('adminLevel') === 'moderator' ? await getViewer(c) : null;
-  return prepareEvent(
-    c.env,
-    { projectId: c.get('project').id, type, postId, actorId: actor?.id ?? null, data, origin: originOf(c) },
-    onlyIf,
-  );
+  const actorId = await moderatorId(c);
+  return prepareEvent(c.env, { projectId: c.get('project').id, type, postId, actorId, data, origin: originOf(c) }, onlyIf);
 }
 
 const dispatch = (c: Context<AppEnv>, event: PendingEvent) => dispatchEvent(c.env, ctxOf(c), event.id);
@@ -93,12 +96,8 @@ adminRoutes.get('/posts', async (c) => {
     projectId: c.get('project').id,
     viewerId: null,
     visibility: { kind: 'byModeration', moderation },
-    sort: parseSort(c.req.query('sort')),
-    statuses: parseStatuses(c.req.query('status')),
-    categoryId: c.req.query('category') || undefined,
-    q: c.req.query('q')?.trim().slice(0, 100) || undefined,
+    ...listFilters((name) => c.req.query(name)),
     includeMerged: c.req.query('merged') === '1',
-    offset: parseCursor(c.req.query('cursor')),
     limit: parseLimit(c.req.query('limit'), 50, 100),
   });
   return c.json({ items: page.items.map(publicPost), nextCursor: page.nextCursor });
@@ -198,26 +197,22 @@ adminRoutes.patch('/posts/:id', async (c) => {
   }
   // The status change is its own guarded statement, so concurrent identical changes emit once.
   const event = newStatus ? await adminEvent(c, 'post.status_changed', post.id, { previousStatus: post.status }, PREVIOUS_CHANGED) : null;
-  const statements = [
-    ...(sets.length
-      ? [c.env.DB.prepare(`UPDATE posts SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).bind(...params, ts, post.id)]
-      : []),
-    ...(newStatus && event
-      ? [
-          c.env.DB.prepare('UPDATE posts SET status = ?, status_changed_at = ?, updated_at = ? WHERE id = ? AND status != ?').bind(
-            newStatus,
-            ts,
-            ts,
-            post.id,
-            newStatus,
-          ),
-          event.statement,
-        ]
-      : []),
-  ];
+  const fieldUpdate = sets.length
+    ? c.env.DB.prepare(`UPDATE posts SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).bind(...params, ts, post.id)
+    : null;
+  const statusUpdate = newStatus
+    ? c.env.DB.prepare('UPDATE posts SET status = ?, status_changed_at = ?, updated_at = ? WHERE id = ? AND status != ?').bind(
+        newStatus,
+        ts,
+        ts,
+        post.id,
+        newStatus,
+      )
+    : null;
+  // The event must directly follow the status UPDATE (its guard reads changes()).
+  const statements = [fieldUpdate, statusUpdate, event?.statement].filter((s): s is D1PreparedStatement => s != null);
   const { results, post: updated } = await writeAndReload(c, statements, post.id);
-  const statusResult = results[sets.length ? 1 : 0];
-  if (event && statusResult?.meta.changes) await dispatch(c, event);
+  if (event && statusUpdate && results[statements.indexOf(statusUpdate)]?.meta.changes) await dispatch(c, event);
   return c.json(found(updated));
 });
 
@@ -310,19 +305,18 @@ adminRoutes.post('/posts/:id/comments', async (c) => {
   const id = newId();
   const ts = now();
   const event = await adminEvent(c, 'comment.created', post.id, { commentId: id, body: text, isOfficial: true });
-  const results = await c.env.DB.batch([
-    c.env.DB.prepare('INSERT INTO comments (id, post_id, author_id, body, is_official, created_at) VALUES (?, ?, ?, ?, 1, ?)').bind(
+  const results = await c.env.DB.batch(
+    commentWriteBatch(c.env, {
       id,
-      post.id,
-      actor.id,
-      text,
+      postId: post.id,
+      authorId: actor.id,
+      body: text,
+      official: true,
       ts,
-    ),
-    recountComments(c.env, post.id),
-    c.env.DB.prepare('UPDATE posts SET last_official_reply_at = ? WHERE id = ?').bind(ts, post.id),
-    event.statement,
-    ...commentQueries(c.env, id),
-  ]);
+      claim: null,
+      event: event.statement,
+    }),
+  );
   await dispatch(c, event);
   return c.json(commentFromResults(originOf(c), results), 201);
 });
@@ -398,7 +392,7 @@ config.delete('/categories/:id', async (c) => {
 config.get('/webhooks', async (c) => {
   const { results } = await c.env.DB.prepare('SELECT * FROM webhooks WHERE project_id = ? ORDER BY created_at')
     .bind(c.get('project').id)
-    .all<{ id: string; url: string; secret: string; events: string; created_at: number }>();
+    .all<WebhookRow>();
   return c.json(results.map(toWebhookConfig));
 });
 

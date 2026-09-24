@@ -226,6 +226,9 @@ export interface ProjectSecrets {
   secretKey?: string;
 }
 
+/** Why a field failed validation (the API sends it as `reason` next to `field`). */
+export type InvalidReason = 'required' | 'not_string' | 'too_short' | 'too_long' | 'not_array' | 'too_many';
+
 export class FeedbackApiError extends Error {
   constructor(
     readonly status: number,
@@ -233,7 +236,7 @@ export class FeedbackApiError extends Error {
     message?: string,
     /** For `invalid_input`: which field failed, and why. */
     readonly field?: string,
-    readonly reason?: 'required' | 'not_string' | 'too_short' | 'too_long' | 'not_array' | 'too_many',
+    readonly reason?: InvalidReason,
   ) {
     super(message ?? code);
     this.name = 'FeedbackApiError';

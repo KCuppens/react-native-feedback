@@ -1,3 +1,4 @@
+import { timingSafeEqual } from '@kobecuppens/feedback-core/server';
 import { DEFAULT_PROJECT_SETTINGS } from '@kobecuppens/feedback-core';
 import { Hono } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
@@ -9,21 +10,20 @@ import {
   clientIp,
   deleteFilesInBackground,
   fail,
-  flag,
   generateProjectKeys,
   newId,
   now,
-  overRateLimit,
+  overAnyRateLimit,
   readJson,
+  requireFlag,
   sha256Hex,
   str,
-  timingSafeEqualString,
 } from '../util';
 
 export const dashboardRoutes = new Hono<AppEnv>();
 
 dashboardRoutes.use('*', async (c, next) => {
-  if (!flag(c.env, 'FEATURE_DASHBOARD')) fail(404, 'not_found');
+  requireFlag(c.env, 'FEATURE_DASHBOARD');
   assertSameOrigin(c);
   await next();
 });
@@ -32,13 +32,13 @@ dashboardRoutes.post('/login', async (c) => {
   const expected = c.env.ADMIN_PASSWORD;
   if (!expected || expected.length < 12) fail(503, 'dashboard_not_configured', 'Set ADMIN_PASSWORD (12+ chars).');
   // Every attempt counts, so parallel guesses cannot dodge the per-attempt delay below.
-  if (await overRateLimit(c.env, `login:${clientIp(c.req)}`, LIMITS.loginAttempts, LIMITS.loginWindowMs)) {
+  if (await overAnyRateLimit(c.env, [{ key: `login:${clientIp(c.req)}`, max: LIMITS.loginAttempts, windowMs: LIMITS.loginWindowMs }])) {
     fail(429, 'rate_limited', 'Too many sign-in attempts. Try again later.');
   }
   const body = await readJson(c.req.raw);
   const password = typeof body.password === 'string' ? body.password : '';
   // Compare digests so the comparison time never depends on the password length.
-  const ok = timingSafeEqualString(await sha256Hex(password), await sha256Hex(expected));
+  const ok = timingSafeEqual(await sha256Hex(password), await sha256Hex(expected));
   if (!ok) {
     await new Promise((r) => setTimeout(r, 750));
     fail(401, 'invalid_password');

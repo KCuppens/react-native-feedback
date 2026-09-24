@@ -12,19 +12,16 @@ import { getViewer, isInAppAdmin, projectAuth, requireViewer } from '../auth';
 import { dispatchEvent, prepareEvent } from '../events';
 import {
   claimAttachments,
-  fileUrl,
   commentFromResults,
-  commentQueries,
+  commentWriteBatch,
   getPost,
   getPostsByIds,
   listComments,
   listPosts,
-  parseSort,
-  parseStatuses,
+  listFilters,
   postFromResults,
   postQueries,
   publicPost,
-  recountComments,
   recountVotes,
   type PostRecord,
 } from '../posts';
@@ -34,16 +31,17 @@ import {
   clientIp,
   ctxOf,
   fail,
+  fileUrl,
   newId,
   now,
   originOf,
   overAnyRateLimit,
-  type RateLimit,
   parseCursor,
   parseLimit,
   readJson,
   str,
   stringArray,
+  type RateLimit,
 } from '../util';
 
 export const publicRoutes = new Hono<AppEnv>();
@@ -96,12 +94,8 @@ publicRoutes.get('/posts', async (c) => {
     projectId: c.get('project').id,
     viewerId: viewer?.id ?? null,
     visibility: { kind: 'approvedOrOwn' },
-    sort: parseSort(c.req.query('sort')),
-    statuses: parseStatuses(c.req.query('status')),
-    categoryId: c.req.query('category') || undefined,
-    q: c.req.query('q')?.trim().slice(0, 100) || undefined,
+    ...listFilters((name) => c.req.query(name)),
     mine: c.req.query('mine') === '1',
-    offset: parseCursor(c.req.query('cursor')),
     limit: parseLimit(c.req.query('limit')),
   });
   return c.json({ items: page.items.map(publicPost), nextCursor: page.nextCursor });
@@ -239,21 +233,9 @@ publicRoutes.post('/posts/:id/comments', async (c) => {
     origin: originOf(c),
   });
   const claim = await claimAttachments(c.env, project.id, viewer.id, attachmentIds, { postId: post.id, commentId: id });
-  const results = await c.env.DB.batch([
-    c.env.DB.prepare('INSERT INTO comments (id, post_id, author_id, body, is_official, created_at) VALUES (?, ?, ?, ?, ?, ?)').bind(
-      id,
-      post.id,
-      viewer.id,
-      text,
-      admin ? 1 : 0,
-      ts,
-    ),
-    ...(claim ? [claim] : []),
-    recountComments(c.env, post.id),
-    ...(admin ? [c.env.DB.prepare('UPDATE posts SET last_official_reply_at = ? WHERE id = ?').bind(ts, post.id)] : []),
-    event.statement,
-    ...commentQueries(c.env, id),
-  ]);
+  const results = await c.env.DB.batch(
+    commentWriteBatch(c.env, { id, postId: post.id, authorId: viewer.id, body: text, official: admin, ts, claim, event: event.statement }),
+  );
   await dispatchEvent(c.env, ctxOf(c), event.id);
   return c.json(commentFromResults(originOf(c), results), 201);
 });

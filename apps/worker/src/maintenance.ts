@@ -102,30 +102,38 @@ async function redeliverStuckEvents(
     if (row.attempts === MAX_SWEEP_ATTEMPTS) log('info', 'event final sweep attempt', fields);
     due.push(row.id);
   }
-  const counts = { redelivered: due.length, deadLettered: results.length - due.length, redeliveryFailed: 0 };
-  if (env.EVENTS) {
-    for (let i = 0; i < due.length; i += 100) {
+  const delivery = env.EVENTS ? await reenqueue(env, env.EVENTS, due) : await deliverInline(env, due);
+  return { ...delivery, deadLettered: results.length - due.length };
+}
+
+type DeliveryCounts = { redelivered: number; redeliveryFailed: number };
+
+/** Hand due events back to the queue, in batches of the queue's 100-message limit. */
+async function reenqueue(env: Env, queue: NonNullable<Env['EVENTS']>, due: string[]): Promise<DeliveryCounts> {
+  for (let i = 0; i < due.length; i += 100) {
+    try {
+      await queue.sendBatch(due.slice(i, i + 100).map((id) => ({ body: { eventId: id } })));
+    } catch (error) {
+      // Events that were never handed to the queue get their attempt back, so a queue
+      // outage cannot dead-letter events that were never tried. Log the root cause first:
+      // the refund can fail too during the same outage.
+      const unsent = due.slice(i);
+      log('error', 'event re-enqueue failed', { unsent: unsent.length, error: String(error) });
       try {
-        await env.EVENTS.sendBatch(due.slice(i, i + 100).map((id) => ({ body: { eventId: id } })));
-      } catch (error) {
-        // Events that were never handed to the queue get their attempt back, so a queue
-        // outage cannot dead-letter events that were never tried. Log the root cause first:
-        // the refund can fail too during the same outage.
-        const unsent = due.slice(i);
-        log('error', 'event re-enqueue failed', { unsent: unsent.length, error: String(error) });
-        try {
-          await env.DB.prepare('UPDATE events SET attempts = attempts - 1 WHERE id IN (SELECT value FROM json_each(?))')
-            .bind(JSON.stringify(unsent))
-            .run();
-        } catch (refundError) {
-          log('error', 'event attempt refund failed', { unsent: unsent.length, eventIds: unsent.slice(0, 20), error: String(refundError) });
-        }
-        return { ...counts, redelivered: i, redeliveryFailed: unsent.length };
+        await env.DB.prepare('UPDATE events SET attempts = attempts - 1 WHERE id IN (SELECT value FROM json_each(?))')
+          .bind(JSON.stringify(unsent))
+          .run();
+      } catch (refundError) {
+        log('error', 'event attempt refund failed', { unsent: unsent.length, eventIds: unsent.slice(0, 20), error: String(refundError) });
       }
+      return { redelivered: i, redeliveryFailed: unsent.length };
     }
-    return counts;
   }
-  // Without a queue, events are delivered inline: count the failures so the summary shows them.
+  return { redelivered: due.length, redeliveryFailed: 0 };
+}
+
+/** Without a queue, deliver inline and count the failures so the summary shows them. */
+async function deliverInline(env: Env, due: string[]): Promise<DeliveryCounts> {
   let failed = 0;
   for (const id of due) {
     try {
@@ -135,5 +143,5 @@ async function redeliverStuckEvents(
       log('error', 'event redelivery failed', { eventId: id, error: String(error) });
     }
   }
-  return { ...counts, redelivered: due.length - failed, redeliveryFailed: failed };
+  return { redelivered: due.length - failed, redeliveryFailed: failed };
 }

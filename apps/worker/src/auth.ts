@@ -1,10 +1,10 @@
-import { hmacHex, verifyFeedbackUser } from '@kobecuppens/feedback-core/server';
+import { hmacHex, timingSafeEqual, verifyFeedbackUser } from '@kobecuppens/feedback-core/server';
 import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { createMiddleware } from 'hono/factory';
 import type { AppEnv, EndUserRow, Env, Identity, Project } from './env';
 import { findProjectById, findProjectByPublicKey, findProjectBySecretHash } from './projects';
-import { assertSameOrigin, fail, flag, newId, now, sha256Hex, timingSafeEqualString } from './util';
+import { assertSameOrigin, fail, flag, newId, now, requireFlag, sha256Hex } from './util';
 
 export const SESSION_COOKIE = 'fb_session';
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -166,7 +166,7 @@ async function verifySessionCookieValue(env: Env, token: string, nowMs = now()):
   if (parts.length !== 4 || parts[0] !== 'v1') return false;
   const [, iat, pwv, signature] = parts as [string, string, string, string];
   const claims = `v1.${iat}.${pwv}`;
-  if (!timingSafeEqualString(signature, await hmacHex(sessionSecret(env), `session:${claims}`))) return false;
+  if (!timingSafeEqual(signature, await hmacHex(sessionSecret(env), `session:${claims}`))) return false;
   const issued = Number(iat);
   if (!Number.isInteger(issued) || nowMs / 1000 - issued > SESSION_TTL_SECONDS || issued > nowMs / 1000 + 60) return false;
   // A changed ADMIN_PASSWORD invalidates every existing session.
@@ -186,7 +186,7 @@ async function hasDashboardSession(c: Context<AppEnv>): Promise<boolean> {
 }
 
 export const requireDashboard = createMiddleware<AppEnv>(async (c, next) => {
-  if (!flag(c.env, 'FEATURE_DASHBOARD')) fail(404, 'not_found');
+  requireFlag(c.env, 'FEATURE_DASHBOARD');
   if (!(await hasDashboardSession(c))) fail(401, 'unauthorized');
   await next();
 });
@@ -207,7 +207,7 @@ function asFullAdmin(c: Context<AppEnv>, project: Project) {
 export const adminAuth = createMiddleware<AppEnv>(async (c, next) => {
   const bearer = c.req.header('Authorization')?.match(/^Bearer\s+(sk_\S+)$/)?.[1];
   if (bearer) {
-    if (!flag(c.env, 'FEATURE_ADMIN_API')) fail(404, 'not_found');
+    requireFlag(c.env, 'FEATURE_ADMIN_API');
     const project = await findProjectBySecretHash(c.env, await sha256Hex(bearer));
     if (!project) fail(401, 'invalid_secret_key');
     asFullAdmin(c, project);
