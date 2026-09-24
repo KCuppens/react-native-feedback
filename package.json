@@ -1,0 +1,24 @@
+{
+  "name": "react-native-feedback",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pluggable feedback & roadmap board for React Native, React and the web",
+  "workspaces": [
+    "packages/core",
+    "packages/native",
+    "packages/react",
+    "apps/worker",
+    "apps/dashboard",
+    "apps/public-board"
+  ],
+  "scripts": {
+    "build": "npm run build -w @kobecuppens/feedback-core && npm run build -w @kobecuppens/react-native-feedback -w @kobecuppens/react-feedback",
+    "build:web": "npm run build -w @feedback/dashboard -w @feedback/public-board && node scripts/collect-assets.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "typescript": "~5.9.2"
+  }
+}

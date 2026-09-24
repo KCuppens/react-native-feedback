@@ -1,0 +1,9 @@
+node_modules
+dist
+.wrangler
+.dev.vars
+apps/worker/assets
+.expo
+coverage
+*.tsbuildinfo
+.testproof-cache

@@ -1,0 +1,9 @@
+{
+  "expo": {
+    "name": "Feedback example",
+    "slug": "feedback-example",
+    "scheme": "feedbackexample",
+    "userInterfaceStyle": "automatic",
+    "plugins": [["expo-image-picker", { "photosPermission": "Attach screenshots to your feedback." }]]
+  }
+}

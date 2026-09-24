@@ -1,0 +1,66 @@
+{
+  // Feedback API + dashboard + public board.
+  // Setup:
+  //   wrangler d1 create feedback-dev && wrangler d1 create feedback      (paste ids below)
+  //   wrangler r2 bucket create feedback-files-dev && wrangler r2 bucket create feedback-files
+  //   wrangler queues create feedback-events(-dev) && wrangler queues create feedback-events-dlq(-dev)
+  //   wrangler secret put ADMIN_PASSWORD --env production
+  //   wrangler secret put SESSION_SECRET --env production    (32+ random chars)
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "feedback-api-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // Hourly: delete unattached uploads, redeliver stuck events, prune old events and rate-limit rows.
+  "triggers": { "crons": ["17 * * * *"] },
+  "alias": {
+    "@kobecuppens/feedback-core/server": "../../packages/core/src/server.ts",
+    "@kobecuppens/feedback-core": "../../packages/core/src/index.ts"
+  },
+  "assets": {
+    "directory": "./assets",
+    "binding": "ASSETS",
+    // The worker gates /admin and /p behind feature flags and does SPA fallback itself.
+    "run_worker_first": true
+  },
+  "vars": {
+    "ENVIRONMENT": "development",
+    "FEATURE_DASHBOARD": "true",
+    "FEATURE_ADMIN_API": "true",
+    "FEATURE_PUBLIC_BOARD": "true",
+    "FEATURE_EMAIL": "false",
+    "FROM_NAME": "Feedback"
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "feedback-dev", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "feedback-files-dev" }],
+  // No queue locally: events are processed inline with waitUntil when EVENTS is unbound.
+
+  "env": {
+    "production": {
+      "name": "feedback-api",
+      "vars": {
+        "ENVIRONMENT": "production",
+        "FEATURE_DASHBOARD": "true",
+        "FEATURE_ADMIN_API": "true",
+        "FEATURE_PUBLIC_BOARD": "true",
+        "FEATURE_EMAIL": "true",
+        "FROM_EMAIL": "feedback@example.com",
+        "FROM_NAME": "Feedback"
+      },
+      "d1_databases": [
+        { "binding": "DB", "database_name": "feedback", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+      ],
+      "r2_buckets": [{ "binding": "FILES", "bucket_name": "feedback-files" }],
+      "send_email": [{ "name": "EMAIL", "remote": true }],
+      "queues": {
+        "producers": [{ "binding": "EVENTS", "queue": "feedback-events" }],
+        "consumers": [
+          { "queue": "feedback-events", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 3, "dead_letter_queue": "feedback-events-dlq" }
+        ]
+      }
+    }
+  }
+}

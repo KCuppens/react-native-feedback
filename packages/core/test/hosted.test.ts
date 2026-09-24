@@ -1,0 +1,123 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createHostedAdapter, createMemoryAdapter, FeedbackApiError } from '../src';
+
+function jsonResponse(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+describe('createHostedAdapter', () => {
+  it('sends the project key and a persisted anonymous id', async () => {
+    const store = new Map<string, string>();
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
+    const fetch = vi.fn(async () => jsonResponse(200, { items: [], nextCursor: null }));
+    const adapter = createHostedAdapter({ projectKey: 'pk_1', baseUrl: 'https://api.test/', storage, fetch });
+
+    await adapter.listPosts({ sort: 'new', status: ['planned', 'done'], q: '' });
+    await adapter.listPosts({});
+
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.test/v1/posts?sort=new&status=planned%2Cdone');
+    const headers = init.headers as Record<string, string>;
+    expect(headers['X-Feedback-Key']).toBe('pk_1');
+    expect(headers['X-Feedback-Anon']).toMatch(/[0-9a-f-]{36}/);
+    const secondHeaders = (fetch.mock.calls[1] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
+    expect(secondHeaders['X-Feedback-Anon']).toBe(headers['X-Feedback-Anon']);
+    expect(store.get('rnf:anon-id')).toBe(headers['X-Feedback-Anon']);
+  });
+
+  it('prefers a signed user token', async () => {
+    const fetch = vi.fn(async () => jsonResponse(200, {}));
+    const adapter = createHostedAdapter({ projectKey: 'pk_1', baseUrl: 'https://api.test', userToken: 'tok', fetch });
+    await adapter.getConfig();
+    const headers = (fetch.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
+    expect(headers['X-Feedback-User']).toBe('tok');
+    expect(headers['X-Feedback-Anon']).toBeUndefined();
+  });
+
+  it('refreshes an expired token once and retries', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(401, { error: 'user_token_expired' }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }));
+    const getUserToken = vi.fn().mockResolvedValueOnce('fresh');
+    const adapter = createHostedAdapter({ projectKey: 'pk', baseUrl: 'https://a', userToken: 'old', getUserToken, fetch });
+    await adapter.getConfig();
+    expect(getUserToken).toHaveBeenCalledTimes(1);
+    const retryHeaders = (fetch.mock.calls[1] as [string, RequestInit])[1].headers as Record<string, string>;
+    expect(retryHeaders['X-Feedback-User']).toBe('fresh');
+  });
+
+  it('throws typed errors', async () => {
+    const fetch = vi.fn(async () => jsonResponse(403, { error: 'forbidden', message: 'nope' }));
+    const adapter = createHostedAdapter({ projectKey: 'pk', baseUrl: 'https://a', fetch });
+    const error = await adapter.getPost('p1').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FeedbackApiError);
+    expect(error).toMatchObject({ status: 403, code: 'forbidden', message: 'nope' });
+  });
+
+  it('sends JSON bodies for votes', async () => {
+    const fetch = vi.fn(async () => jsonResponse(200, {}));
+    const adapter = createHostedAdapter({ projectKey: 'pk', baseUrl: 'https://a', fetch });
+    await adapter.vote('p1', -1);
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://a/v1/posts/p1/vote');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe('{"value":-1}');
+  });
+
+  it('recovers after getUserToken fails once, and picks up a later sign-in', async () => {
+    const fetch = vi.fn(async () => jsonResponse(200, {}));
+    const getUserToken = vi
+      .fn<() => Promise<string | null>>()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce('signed-in');
+    const adapter = createHostedAdapter({ projectKey: 'pk', baseUrl: 'https://a', getUserToken, fetch });
+    const header = (i: number) => (fetch.mock.calls[i] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
+
+    await expect(adapter.getConfig()).rejects.toThrow('offline');
+    await adapter.getConfig();
+    expect(header(0)['X-Feedback-Anon']).toBeDefined();
+    await adapter.getConfig();
+    expect(header(1)['X-Feedback-User']).toBe('signed-in');
+  });
+
+  it('shares one refresh between concurrent requests and throws after a second expiry', async () => {
+    const expired = () => jsonResponse(401, { error: 'user_token_expired' });
+    const fetch = vi.fn(async () => expired());
+    const getUserToken = vi.fn(async () => 'still-bad');
+    const adapter = createHostedAdapter({ projectKey: 'pk', baseUrl: 'https://a', userToken: 'old', getUserToken, fetch });
+    const results = await Promise.allSettled([adapter.getConfig(), adapter.getConfig()]);
+    expect(results.every((r) => r.status === 'rejected')).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(getUserToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('still works when storage throws', async () => {
+    const fetch = vi.fn(async () => jsonResponse(200, {}));
+    const storage = {
+      getItem: () => Promise.reject(new Error('denied')),
+      setItem: () => Promise.reject(new Error('denied')),
+    };
+    const adapter = createHostedAdapter({ projectKey: 'pk', baseUrl: 'https://a', storage, fetch });
+    await adapter.getConfig();
+    await adapter.getConfig();
+    const ids = fetch.mock.calls.map((c) => ((c as unknown as [string, RequestInit])[1].headers as Record<string, string>)['X-Feedback-Anon']);
+    expect(ids[0]).toBeDefined();
+    expect(ids[1]).toBe(ids[0]);
+  });
+
+  it('keeps the status when an error body is not JSON', async () => {
+    const fetch = vi.fn(async () => new Response('<html>Bad gateway</html>', { status: 502 }));
+    const adapter = createHostedAdapter({ projectKey: 'pk', baseUrl: 'https://a', fetch });
+    await expect(adapter.getConfig()).rejects.toMatchObject({ name: 'FeedbackApiError', status: 502, code: 'request_failed' });
+  });
+});
+
+describe('createMemoryAdapter', () => {
+  it('404s instead of deleting another post when the id is unknown', async () => {
+    const adapter = createMemoryAdapter({ settings: { inAppAdmin: true }, viewer: { id: 'boss', isAdmin: true }, posts: [{ title: 'Keep me' }] });
+    await expect(adapter.admin!.deletePost('nope')).rejects.toMatchObject({ status: 404 });
+    expect(adapter.posts.map((p) => p.title)).toEqual(['Keep me']);
+  });
+});

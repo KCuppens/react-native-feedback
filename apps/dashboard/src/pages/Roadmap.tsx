@@ -1,0 +1,97 @@
+import type { Post, PostStatus } from '@kobecuppens/feedback-core';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { api, errorText } from '../api';
+import { href } from '../router';
+import { STATUS_LABELS } from '../ui';
+
+const COLUMNS: PostStatus[] = ['open', 'under_review', 'planned', 'in_progress', 'done'];
+
+/** Kanban of approved posts; drag a card (or use its menu) to change status. */
+export function RoadmapPage({ projectId }: { projectId: string }) {
+  const admin = api.project(projectId);
+  const client = useQueryClient();
+  const key = ['p', projectId, 'kanban'];
+  const posts = useQuery({
+    queryKey: key,
+    queryFn: async () => (await admin.listPosts({ moderation: 'approved', status: COLUMNS, sort: 'top', limit: 100 })).items,
+  });
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [over, setOver] = useState<PostStatus | null>(null);
+
+  const move = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: PostStatus }) => admin.updatePost(id, { status }),
+    onMutate: async ({ id, status }) => {
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<Post[]>(key);
+      client.setQueryData<Post[]>(key, (list) => list?.map((p) => (p.id === id ? { ...p, status } : p)));
+      return { previous };
+    },
+    onError: (_e, _v, ctx) => client.setQueryData(key, ctx?.previous),
+    onSettled: () => void client.invalidateQueries({ queryKey: ['p', projectId] }),
+  });
+
+  if (posts.isPending) return <p className="muted">Loading…</p>;
+  if (posts.isError) return <p className="error">{errorText(posts.error)}</p>;
+
+  return (
+    <>
+      {move.isError && <p className="error">{errorText(move.error)}</p>}
+      <div className="kanban">
+        {COLUMNS.map((status) => {
+          const items = posts.data.filter((p) => p.status === status);
+          return (
+            <section
+              key={status}
+              className={`column${over === status ? ' over' : ''}`}
+              aria-label={STATUS_LABELS[status]}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setOver(status);
+              }}
+              onDragLeave={() => setOver((s) => (s === status ? null : s))}
+              onDrop={(e) => {
+                e.preventDefault();
+                setOver(null);
+                const id = e.dataTransfer.getData('text/plain');
+                if (id && posts.data.find((p) => p.id === id)?.status !== status) move.mutate({ id, status });
+              }}
+            >
+              <h3>
+                <span className={`badge status-${status}`}>{STATUS_LABELS[status]}</span> <span className="muted">{items.length}</span>
+              </h3>
+              {items.map((post) => (
+                <article
+                  key={post.id}
+                  className={`kcard${dragging === post.id ? ' dragging' : ''}`}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', post.id);
+                    setDragging(post.id);
+                  }}
+                  onDragEnd={() => setDragging(null)}
+                >
+                  <a href={href(projectId, 'roadmap', post.id)}>{post.title}</a>
+                  <div className="row between small muted">
+                    <span>▲ {post.score}</span>
+                    <select
+                      value={post.status}
+                      aria-label={`Move ${post.title}`}
+                      onChange={(e) => move.mutate({ id: post.id, status: e.target.value as PostStatus })}
+                    >
+                      {COLUMNS.map((s) => (
+                        <option key={s} value={s}>
+                          {STATUS_LABELS[s]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </article>
+              ))}
+            </section>
+          );
+        })}
+      </div>
+    </>
+  );
+}

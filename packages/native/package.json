@@ -1,0 +1,71 @@
+{
+  "name": "@kobecuppens/react-native-feedback",
+  "version": "0.1.0",
+  "description": "Drop-in feedback & roadmap board for React Native and react-native-web. Fully themeable.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "react-native": "./src/index.ts",
+  "exports": {
+    ".": {
+      "rnf-source": "./src/index.ts",
+      "react-native": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "react-native",
+    "feedback",
+    "roadmap",
+    "feature-requests",
+    "voting",
+    "expo"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kobecuppens/feedback-core": "0.1.0"
+  },
+  "peerDependencies": {
+    "@react-native-async-storage/async-storage": ">=1.21.0",
+    "expo-image-picker": ">=15.0.0",
+    "react": ">=18.2.0",
+    "react-native": ">=0.74.0"
+  },
+  "peerDependenciesMeta": {
+    "@react-native-async-storage/async-storage": {
+      "optional": true
+    },
+    "expo-image-picker": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^19.1.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "jsdom": "^26.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-native": "^0.81.0",
+    "react-native-web": "^0.21.0",
+    "tsup": "^8.5.0",
+    "vitest": "^3.2.4"
+  }
+}

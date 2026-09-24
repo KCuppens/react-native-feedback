@@ -1,0 +1,157 @@
+import { HTTPException } from 'hono/http-exception';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import type { Context } from 'hono';
+import type { AppEnv, Env } from './env';
+
+export const newId = () => crypto.randomUUID();
+export const now = () => Date.now();
+
+const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+
+export function randomToken(length: number): string {
+  // Rejection sampling keeps the distribution uniform over the alphabet.
+  const out: string[] = [];
+  while (out.length < length) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(length * 2))) {
+      if (byte < 248 && out.length < length) out.push(ALPHABET[byte % 62]!);
+    }
+  }
+  return out.join('');
+}
+
+export async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function generateProjectKeys() {
+  return {
+    publicKey: `pk_${randomToken(24)}`,
+    signingSecret: `fbs_${randomToken(40)}`,
+    secretKey: `sk_${randomToken(40)}`,
+  };
+}
+
+/** Throw a JSON error `{ error, message }`. */
+export function fail(status: ContentfulStatusCode, error: string, message?: string): never {
+  throw new HTTPException(status, {
+    res: new Response(JSON.stringify({ error, message: message ?? error }), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  });
+}
+
+export function flag(env: Env, name: 'FEATURE_DASHBOARD' | 'FEATURE_ADMIN_API' | 'FEATURE_PUBLIC_BOARD' | 'FEATURE_EMAIL') {
+  return env[name]?.toLowerCase() === 'true';
+}
+
+export async function readJson(req: Request): Promise<Record<string, unknown>> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    fail(400, 'invalid_json');
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) fail(400, 'invalid_json');
+  return body as Record<string, unknown>;
+}
+
+export function str(
+  body: Record<string, unknown>,
+  key: string,
+  opts: { min?: number; max: number; optional?: boolean; nullable?: boolean },
+): string | null | undefined {
+  const value = body[key];
+  if (value === undefined) {
+    if (opts.optional) return undefined;
+    fail(400, 'invalid_input', `${key} is required`);
+  }
+  if (value === null) {
+    if (opts.nullable) return null;
+    fail(400, 'invalid_input', `${key} must be a string`);
+  }
+  if (typeof value !== 'string') fail(400, 'invalid_input', `${key} must be a string`);
+  const trimmed = value.trim();
+  if (trimmed.length < (opts.min ?? 0)) fail(400, 'invalid_input', `${key} is too short`);
+  if (trimmed.length > opts.max) fail(400, 'invalid_input', `${key} is too long`);
+  return trimmed;
+}
+
+export function stringArray(body: Record<string, unknown>, key: string, max: number): string[] {
+  const value = body[key];
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+    fail(400, 'invalid_input', `${key} must be an array of strings`);
+  }
+  if (value.length > max) fail(400, 'invalid_input', `too many ${key}`);
+  return [...new Set(value as string[])];
+}
+
+export function parseCursor(cursor: string | undefined | null): number {
+  if (!cursor) return 0;
+  const n = Number.parseInt(cursor, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+export function parseLimit(raw: string | undefined, fallback = 20, max = 50): number {
+  const n = raw ? Number.parseInt(raw, 10) : fallback;
+  return Number.isFinite(n) ? Math.min(Math.max(n, 1), max) : fallback;
+}
+
+export function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!);
+}
+
+export function placeholders(n: number): string {
+  return Array.from({ length: n }, () => '?').join(',');
+}
+
+export function timingSafeEqualString(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+/**
+ * Count one hit against a fixed window and report whether the caller is over `max`.
+ * A single upsert, so concurrent requests cannot both slip under the limit.
+ */
+export async function overRateLimit(env: Env, key: string, max: number, windowMs: number): Promise<boolean> {
+  const ts = Date.now();
+  const row = await env.DB.prepare(
+    `INSERT INTO rate_limits (key, window_start, count) VALUES (?1, ?2, 1)
+     ON CONFLICT (key) DO UPDATE SET
+       count = CASE WHEN window_start <= ?3 THEN 1 ELSE count + 1 END,
+       window_start = CASE WHEN window_start <= ?3 THEN ?2 ELSE window_start END
+     RETURNING count`,
+  )
+    .bind(key, ts, ts - windowMs)
+    .first<{ count: number }>();
+  return (row?.count ?? 0) > max;
+}
+
+export function clientIp(req: { header(name: string): string | undefined }): string {
+  return req.header('CF-Connecting-IP') ?? 'unknown';
+}
+
+/** Public origin of the current request, used to build file URLs. */
+export const originOf = (c: Context<AppEnv>) => new URL(c.req.url).origin;
+
+/** The execution context, or undefined in tests that call app.request without one. */
+export function ctxOf(c: Context<AppEnv>): ExecutionContext | undefined {
+  try {
+    return c.executionCtx as ExecutionContext;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 400 unless the category belongs to the project. */
+export async function assertCategory(c: Context<AppEnv>, categoryId: string): Promise<void> {
+  const cat = await c.env.DB.prepare('SELECT id FROM categories WHERE id = ? AND project_id = ?')
+    .bind(categoryId, c.get('project').id)
+    .first();
+  if (!cat) fail(400, 'invalid_category');
+}

@@ -1,0 +1,21 @@
+{
+  "name": "feedback-example-expo",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@kobecuppens/react-native-feedback": "file:../../packages/native",
+    "@kobecuppens/feedback-core": "file:../../packages/core",
+    "@react-native-async-storage/async-storage": "*",
+    "expo": "~57.0.0",
+    "expo-image-picker": "*",
+    "react": "*",
+    "react-dom": "*",
+    "react-native": "*",
+    "react-native-safe-area-context": "*",
+    "react-native-web": "*"
+  }
+}
