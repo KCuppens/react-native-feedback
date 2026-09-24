@@ -196,16 +196,15 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
   const declineFocus = useSwapFocus(declining);
   const deleteFocus = useSwapFocus(confirmDelete);
   const section = useRef<HTMLElement | null>(null);
-  // Approving swaps the Approve/Decline row for the status chips: keep focus in the panel.
-  const wasApproved = useRef(post.moderation === 'approved');
+  // Approving here swaps the Approve/Decline row for the status chips: keep focus in the
+  // panel. Only for this user's own approval (not a background refetch), and only when focus
+  // was actually lost with the removed row.
+  const approvedHere = useRef(false);
   useEffect(() => {
-    const approved = post.moderation === 'approved';
-    // Only when focus was actually lost with the removed row, never stealing it from elsewhere.
+    if (post.moderation !== 'approved' || !approvedHere.current) return;
+    approvedHere.current = false;
     const lost = !document.activeElement || document.activeElement === document.body;
-    if (approved && !wasApproved.current && lost && section.current) {
-      (section.current.querySelector<HTMLElement>('button') ?? section.current).focus();
-    }
-    wasApproved.current = approved;
+    if (lost && section.current) (section.current.querySelector<HTMLElement>('button') ?? section.current).focus();
   }, [post.moderation]);
   // Escape answers "no" to an open inline question instead of leaving the screen.
   const cancelOnEscape = (cancel: () => void) => (e: KeyboardEvent) => {
@@ -228,7 +227,14 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
       <InlineError error={failed?.error} />
       {post.moderation !== 'approved' && !declining && (
         <div {...slot('adminRow')} ref={declineFocus.closedRow}>
-          <Button label={strings.admin.approve} onClick={() => m.approve.mutate(post.id)} loading={m.approve.isPending} />
+          <Button
+            label={strings.admin.approve}
+            onClick={() => {
+              approvedHere.current = true;
+              m.approve.mutate(post.id, { onError: () => (approvedHere.current = false) });
+            }}
+            loading={m.approve.isPending}
+          />
           {post.moderation === 'pending' && <Button label={strings.admin.decline} variant="secondary" onClick={() => setDeclining(true)} />}
         </div>
       )}

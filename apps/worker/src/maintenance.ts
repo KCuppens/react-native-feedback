@@ -75,7 +75,7 @@ async function redeliverStuckEvents(
   env: Env,
   before: number,
   now: number,
-): Promise<{ redelivered: number; deadLettered: number; reenqueueFailed: number }> {
+): Promise<{ redelivered: number; deadLettered: number; redeliveryFailed: number }> {
   // Count the attempt before redelivering, so an event that keeps failing is given up on
   // instead of crowding out newer stuck events every hour. One sweep after its final attempt
   // an event still unprocessed is bumped past the limit: that is when it is dead-lettered.
@@ -101,7 +101,7 @@ async function redeliverStuckEvents(
     if (row.attempts === MAX_SWEEP_ATTEMPTS) log('info', 'event final sweep attempt', fields);
     due.push(row.id);
   }
-  const counts = { redelivered: due.length, deadLettered: results.length - due.length, reenqueueFailed: 0 };
+  const counts = { redelivered: due.length, deadLettered: results.length - due.length, redeliveryFailed: 0 };
   if (env.EVENTS) {
     for (let i = 0; i < due.length; i += 100) {
       try {
@@ -119,17 +119,20 @@ async function redeliverStuckEvents(
         } catch (refundError) {
           log('error', 'event attempt refund failed', { unsent: unsent.length, eventIds: unsent.slice(0, 20), error: String(refundError) });
         }
-        return { ...counts, redelivered: i, reenqueueFailed: unsent.length };
+        return { ...counts, redelivered: i, redeliveryFailed: unsent.length };
       }
     }
     return counts;
   }
+  // Without a queue, events are delivered inline: count the failures so the summary shows them.
+  let failed = 0;
   for (const id of due) {
     try {
       await processEvent(env, id);
     } catch (error) {
+      failed++;
       log('error', 'event redelivery failed', { eventId: id, error: String(error) });
     }
   }
-  return counts;
+  return { ...counts, redelivered: due.length - failed, redeliveryFailed: failed };
 }

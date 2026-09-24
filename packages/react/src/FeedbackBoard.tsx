@@ -183,8 +183,11 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
 
   // Escape goes back, like the hardware back button on Android. Scoped to the pushed
   // screen so an Escape meant for the host app (its own modal or menu) never pops the board.
+  // A started submit draft only lives in FeedbackSubmit's state: never discard it on Escape.
+  const draftDirty = useRef(false);
   const onScreenKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (route.name === 'submit' && draftDirty.current) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     e.preventDefault();
     pop();
@@ -216,7 +219,13 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
         >
           {route.name === 'post' && <FeedbackDetail key={route.id} postId={route.id} initialPost={route.initial} onBack={pop} />}
           {route.name === 'submit' && (
-            <FeedbackSubmit onCancel={pop} onDone={(post) => setStack([{ name: 'tabs' }, { name: 'post', id: post.id, initial: post }])} />
+            <FeedbackSubmit
+              onCancel={pop}
+              onDone={(post) => setStack([{ name: 'tabs' }, { name: 'post', id: post.id, initial: post }])}
+              onDirtyChange={(dirty) => {
+                draftDirty.current = dirty;
+              }}
+            />
           )}
         </div>
       )}

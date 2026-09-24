@@ -119,6 +119,39 @@ describe('bulletproof round 3', () => {
       console.error = error;
     }
     const summary = logs.map((l) => JSON.parse(l)).find((l) => l.msg === 'maintenance');
-    expect(summary).toMatchObject({ redelivered: 0, deadLettered: 1, reenqueueFailed: 0 });
+    expect(summary).toMatchObject({ redelivered: 0, deadLettered: 1, redeliveryFailed: 0 });
+  });
+
+  it('counts failed inline redeliveries in the maintenance summary', async () => {
+    const { runMaintenance } = await import('../src/maintenance');
+    const logs: string[] = [];
+    const spies = (['log', 'error', 'warn'] as const).map((level) => {
+      const original = console[level];
+      console[level] = (line: string) => void logs.push(line);
+      return () => (console[level] = original);
+    });
+    try {
+      h.db
+        .prepare("INSERT INTO events (id, project_id, type, payload, created_at) VALUES ('e1', ?, 'post.created', '{}', 0)")
+        .run(h.project.id);
+      const broken = {
+        ...h.env,
+        EVENTS: undefined,
+        DB: new Proxy(h.env.DB, {
+          get(target, prop) {
+            if (prop !== 'prepare') return Reflect.get(target, prop);
+            return (sql: string) => {
+              if (sql.startsWith('SELECT * FROM events WHERE id')) throw new Error('boom');
+              return target.prepare(sql);
+            };
+          },
+        }),
+      };
+      await runMaintenance(broken);
+    } finally {
+      for (const restore of spies) restore();
+    }
+    const summary = logs.map((l) => JSON.parse(l)).find((l) => l.msg === 'maintenance');
+    expect(summary).toMatchObject({ redelivered: 0, redeliveryFailed: 1 });
   });
 });

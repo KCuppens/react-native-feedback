@@ -17,17 +17,22 @@ export function QueuePage({ projectId }: { projectId: string }) {
   const admin = api.project(projectId);
   const queue = useQuery({ queryKey: ['p', projectId, 'queue'], queryFn: () => admin.listQueue() });
 
-  // Approving or declining removes the card, and focus with it: move it to the card that
+  // Approving or declining here removes the card, and focus with it: move it to the card that
   // took its place (or the new last one, or the empty state) so keyboard users keep going.
+  // Only for this user's own action: a background refetch must not move focus or scroll.
   const list = useRef<HTMLDivElement>(null);
   const empty = useRef<HTMLHeadingElement>(null);
   const shown = useRef<string[]>([]);
+  const moderatedHere = useRef<string | null>(null);
   const ids = queue.data?.items.map((post) => post.id).join(',') ?? '';
   useEffect(() => {
     const before = shown.current;
     const now = ids ? ids.split(',') : [];
     shown.current = now;
-    const removed = before.findIndex((id) => !now.includes(id));
+    const id = moderatedHere.current;
+    if (!id || now.includes(id)) return;
+    moderatedHere.current = null;
+    const removed = before.indexOf(id);
     const lost = !document.activeElement || document.activeElement === document.body;
     if (removed < 0 || !lost) return;
     if (now.length === 0) return empty.current?.focus();
@@ -49,19 +54,30 @@ export function QueuePage({ projectId }: { projectId: string }) {
   return (
     <div className="stack" ref={list}>
       {queue.data.items.map((post) => (
-        <QueueCard key={post.id} projectId={projectId} post={post} />
+        <QueueCard
+          key={post.id}
+          projectId={projectId}
+          post={post}
+          onModerated={() => {
+            moderatedHere.current = post.id;
+          }}
+        />
       ))}
     </div>
   );
 }
 
-function QueueCard({ projectId, post }: { projectId: string; post: Post }) {
+function QueueCard({ projectId, post, onModerated }: { projectId: string; post: Post; onModerated: () => void }) {
   const admin = api.project(projectId);
   const invalidate = useProjectInvalidate(projectId);
   const [reason, setReason] = useState('');
   const [declining, setDeclining] = useState(false);
-  const approve = useMutation({ mutationFn: () => admin.approve(post.id), onSuccess: invalidate });
-  const decline = useMutation({ mutationFn: () => admin.decline(post.id, reason.trim() || null), onSuccess: invalidate });
+  const done = () => {
+    onModerated();
+    invalidate();
+  };
+  const approve = useMutation({ mutationFn: () => admin.approve(post.id), onSuccess: done });
+  const decline = useMutation({ mutationFn: () => admin.decline(post.id, reason.trim() || null), onSuccess: done });
   const error = latestError(approve, decline);
   // Cancel replaces itself with the Decline… button: send focus back there, not to <body>.
   const declineButton = useRef<HTMLButtonElement>(null);
@@ -101,7 +117,13 @@ function QueueCard({ projectId, post }: { projectId: string; post: Post }) {
             aria-label="Decline reason"
             autoFocus
           />
-          <button type="button" className="danger" onClick={() => decline.mutate()} disabled={decline.isPending}>
+          {/* aria-disabled, not disabled, while busy: disabling drops focus to <body> if it then fails. */}
+          <button
+            type="button"
+            className="danger"
+            onClick={() => !decline.isPending && decline.mutate()}
+            aria-disabled={decline.isPending || undefined}
+          >
             Decline
           </button>
           <button type="button" className="ghost" onClick={() => setDeclining(false)}>
@@ -110,7 +132,12 @@ function QueueCard({ projectId, post }: { projectId: string; post: Post }) {
         </div>
       ) : (
         <div className="row">
-          <button type="button" className="primary" onClick={() => approve.mutate()} disabled={approve.isPending}>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => !approve.isPending && approve.mutate()}
+            aria-disabled={approve.isPending || undefined}
+          >
             Approve
           </button>
           <button ref={declineButton} type="button" onClick={() => setDeclining(true)}>

@@ -46,7 +46,7 @@ input:not([type='checkbox']):not([type='color']), textarea { width: 100%; }
 input[type='color'] { padding: 2px; width: 38px; height: 34px; flex: none; }
 textarea { resize: vertical; }
 button { background: var(--surface-2); border: 1px solid transparent; border-radius: 8px; padding: 7px 14px; cursor: pointer; white-space: nowrap; }
-button:disabled { opacity: 0.5; cursor: default; }
+button:disabled, button[aria-disabled='true'] { opacity: 0.5; cursor: default; }
 button.primary { background: var(--primary); color: var(--on-primary); font-weight: 600; }
 button.danger { background: var(--danger); color: var(--on-danger); font-weight: 600; }
 button.ghost { background: none; }

@@ -36,8 +36,12 @@ export function Button(props: ButtonProps) {
     <button
       type={props.type ?? 'button'}
       {...slot(variant === 'primary' ? 'button' : variant === 'danger' ? 'buttonDanger' : 'buttonSecondary')}
-      onClick={props.onClick}
-      disabled={props.disabled || props.loading}
+      // Busy is aria-disabled, not disabled: a disabled button drops focus to <body>, and a
+      // keyboard user would stay there if the request then fails. preventDefault also stops
+      // a busy submit button from submitting its form again.
+      onClick={props.loading ? (e) => e.preventDefault() : props.onClick}
+      disabled={props.disabled}
+      aria-disabled={props.loading || undefined}
       aria-busy={props.loading || undefined}
     >
       {props.loading ? <Spinner label={props.label} /> : props.label}

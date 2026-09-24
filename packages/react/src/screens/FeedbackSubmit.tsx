@@ -7,9 +7,11 @@ import { useUI } from '../ui';
 export interface FeedbackSubmitProps {
   onDone?: (post: Post) => void;
   onCancel?: () => void;
+  /** Called when the form gains or loses unsaved input, e.g. to guard navigating away. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
-export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
+export function FeedbackSubmit({ onDone, onCancel, onDirtyChange }: FeedbackSubmitProps) {
   const { slot, strings } = useUI();
   const features = useFeatures();
   const { data: config } = useConfig();
@@ -24,6 +26,11 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
   const [error, setError] = useState<unknown>(null);
   const [created, setCreated] = useState<Post | null>(null);
   const limits = config?.limits;
+
+  const dirty = !created && !!(title.trim() || body.trim() || categoryId || attachments.length > 0);
+  const onDirty = useRef(onDirtyChange);
+  onDirty.current = onDirtyChange;
+  useEffect(() => onDirty.current?.(dirty), [dirty]);
   const titleMin = limits?.titleMin ?? 3;
 
   // Free preview blobs on unmount (removals free their own).
@@ -79,14 +86,7 @@ export function FeedbackSubmit({ onDone, onCancel }: FeedbackSubmitProps) {
   return (
     <>
       <Header title={strings.submit.title} onBack={onCancel} />
-      <form
-        {...slot('form')}
-        onSubmit={submit}
-        onKeyDown={(e) => {
-          // Keep a started draft: Escape-to-back (see BoardNavigator) would discard it.
-          if (e.key === 'Escape' && (title.trim() || body.trim() || categoryId || attachments.length > 0)) e.preventDefault();
-        }}
-      >
+      <form {...slot('form')} onSubmit={submit}>
         <label {...slot('inputLabel')} htmlFor={`${ids}-title`}>
           {strings.submit.titleLabel}
         </label>

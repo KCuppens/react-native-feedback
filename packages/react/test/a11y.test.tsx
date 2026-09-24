@@ -149,5 +149,30 @@ describe('accessibility and resilience', () => {
     fireEvent.change(title, { target: { value: 'Half an idea' } });
     fireEvent.keyDown(screen.getByRole('button', { name: 'Submit' }), { key: 'Escape' });
     expect(screen.getByLabelText('Title')).toBe(title);
+    // Also with focus outside the form (the screen heading).
+    fireEvent.keyDown(screen.getByRole('heading', { level: 2 }), { key: 'Escape' });
+    expect(screen.getByLabelText('Title')).toBe(title);
+  });
+
+  it('keeps focus on a busy button so a failed request does not lose the user', async () => {
+    const adapter = createMemoryAdapter({
+      settings: { inAppAdmin: true },
+      viewer: { id: 'me', isAdmin: true },
+      posts: [{ id: 'p1', title: 'Dark mode', moderation: 'pending' }],
+    });
+    let fail = (_: unknown) => {};
+    adapter.admin!.approve = () => new Promise((_, reject) => (fail = reject));
+    render(<FeedbackBoard adapter={adapter} locale="en" initialTab="admin" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Dark mode/ }));
+    const approve = await screen.findByRole('button', { name: 'Approve' });
+    approve.focus();
+    fireEvent.click(approve);
+    // Busy: announced and inert, but still focusable (a disabled button would drop focus).
+    await waitFor(() => expect(approve.getAttribute('aria-disabled')).toBe('true'));
+    expect(approve.hasAttribute('disabled')).toBe(false);
+    fail(new FeedbackApiError(500, 'server_error'));
+    await screen.findByRole('alert');
+    expect(approve.hasAttribute('disabled')).toBe(false);
+    expect(document.activeElement).toBe(approve);
   });
 });

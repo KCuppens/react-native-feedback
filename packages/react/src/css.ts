@@ -7,7 +7,7 @@ export const feedbackCss = `
 :where(.fb-root) { font-family: var(--fb-font-body); color: var(--fb-color-text); background: var(--fb-color-background); font-size: var(--fb-font-size-md); line-height: 1.4; display: flex; flex-direction: column; min-height: 100%; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
 :where(.fb-root) *, :where(.fb-root) *::before, :where(.fb-root) *::after { box-sizing: inherit; }
 :where(.fb-root) button { font: inherit; cursor: pointer; }
-:where(.fb-root) button:disabled { cursor: default; opacity: .5; }
+:where(.fb-root) button:disabled, :where(.fb-root) button[aria-disabled='true'] { cursor: default; opacity: .5; }
 :where(.fb-root) :focus-visible { outline: 2px solid var(--fb-color-primary); outline-offset: 2px; }
 
 :where(.fb-header) { display: flex; align-items: center; gap: var(--fb-space-sm); padding: var(--fb-space-md) var(--fb-space-lg); background: var(--fb-color-surface); border-bottom: 1px solid var(--fb-color-border); }
