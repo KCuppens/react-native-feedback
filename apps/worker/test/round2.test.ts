@@ -110,4 +110,50 @@ describe('bulletproof round 2', () => {
     expect(h.files.store.has('k')).toBe(true);
     expect(h.db.prepare('SELECT id FROM attachments').all()).toEqual([{ id: 'a' }]);
   });
+
+  it('dead-letters an event after three failed sweep redeliveries', async () => {
+    const { runMaintenance } = await import('../src/maintenance');
+    h.db
+      .prepare(
+        "INSERT INTO events (id, project_id, type, post_id, payload, created_at) VALUES ('poison', ?, 'post.created', 'gone', '{}', ?)",
+      )
+      .run(h.project.id, Date.now() - 10 * 60_000);
+    // Make every delivery attempt fail by pointing the event at a project that no longer loads.
+    const broken = {
+      ...h.env,
+      DB: new Proxy(h.env.DB, {
+        get(target, prop) {
+          if (prop !== 'prepare') return Reflect.get(target, prop);
+          return (sql: string) => {
+            if (sql.startsWith('SELECT * FROM events WHERE id')) throw new Error('boom');
+            return target.prepare(sql);
+          };
+        },
+      }),
+    };
+    for (let i = 0; i < 5; i++) await runMaintenance(broken, Date.now() + i * 3_600_000);
+    expect(h.db.prepare("SELECT attempts FROM events WHERE id = 'poison'").get()).toEqual({ attempts: 3 });
+    await runMaintenance(h.env, Date.now() + 31 * 86_400_000);
+    expect(h.db.prepare("SELECT COUNT(*) AS n FROM events WHERE id = 'poison'").get()).toEqual({ n: 0 });
+  });
+
+  it('lets a losing concurrent merge change nothing', async () => {
+    h.setSettings({ autoApprove: true });
+    const make = async (title: string, user: string) =>
+      (await (await h.request('/v1/posts', { method: 'POST', headers: await h.as({ user }), json: { title } })).json()) as Post;
+    const a = await make('Post A', 'alice');
+    const b = await make('Post B', 'bob');
+    const merge = (id: string, intoId: string) =>
+      h.request(`/v1/admin/posts/${id}/merge`, { method: 'POST', headers: admin(), json: { intoId } });
+    await Promise.all([merge(a.id, b.id), merge(b.id, a.id)]);
+    expect(eventCount('post.merged')).toBe(1);
+    const winner = h.db.prepare('SELECT id, merged_into_id FROM posts WHERE merged_into_id IS NOT NULL').get() as {
+      id: string;
+      merged_into_id: string;
+    };
+    // The surviving post holds both supporters; the merged one keeps only its own.
+    const votes = (id: string) => (h.db.prepare('SELECT COUNT(*) AS n FROM votes WHERE post_id = ?').get(id) as { n: number }).n;
+    expect(votes(winner.merged_into_id)).toBe(2);
+    expect(votes(winner.id)).toBe(1);
+  });
 });

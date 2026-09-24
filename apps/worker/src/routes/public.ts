@@ -120,6 +120,7 @@ publicRoutes.get('/posts/:id', async (c) => {
 const rateLimited = () => fail(429, 'rate_limited', 'Slow down a little and try again later.');
 
 const HOUR = 3_600_000;
+const ROADMAP_COLUMN_SIZE = 50;
 const PER_USER_PER_HOUR = { post: LIMITS.postsPerHour, comment: LIMITS.commentsPerHour, upload: LIMITS.uploadsPerHour, vote: null };
 
 /**
@@ -301,22 +302,32 @@ publicRoutes.post('/uploads', async (c) => {
 publicRoutes.get('/roadmap', async (c) => {
   if (!c.get('project').settings.roadmapEnabled) fail(404, 'roadmap_disabled');
   const viewer = await getViewer(c);
-  // One query for all columns, split and capped per column here.
-  const { items } = await listPosts(c.env, originOf(c), {
-    projectId: c.get('project').id,
-    viewerId: viewer?.id ?? null,
-    visibility: { kind: 'byModeration', moderation: 'approved' },
-    sort: 'top',
-    statuses: [...ROADMAP_STATUSES],
-    offset: 0,
-    limit: 500,
-  });
-  const columns: RoadmapColumn[] = ROADMAP_STATUSES.map((status) => {
-    const posts = items.filter((p) => p.status === status);
-    // Done shows what shipped most recently; the others rank by votes.
-    if (status === 'done') posts.sort((a, b) => (b.statusChangedAt ?? 0) - (a.statusChangedAt ?? 0));
-    return { status, posts: posts.slice(0, 50).map(publicPost) };
-  });
+  // Rank inside each column in SQL so only the posts that are shown get loaded and hydrated.
+  // Done shows what shipped most recently; the other columns rank by votes.
+  const { results } = await c.env.DB.prepare(
+    `WITH ranked AS (
+       SELECT id, status, ROW_NUMBER() OVER (
+         PARTITION BY status
+         ORDER BY CASE WHEN status = 'done' THEN -COALESCE(status_changed_at, 0) ELSE -score END, created_at DESC
+       ) AS rn
+       FROM posts
+       WHERE project_id = ? AND moderation = 'approved' AND merged_into_id IS NULL AND status IN ('planned', 'in_progress', 'done')
+     )
+     SELECT id, status FROM ranked WHERE rn <= ? ORDER BY status, rn`,
+  )
+    .bind(c.get('project').id, ROADMAP_COLUMN_SIZE)
+    .all<{ id: string; status: string }>();
+  const posts = await getPostsByIds(
+    c.env,
+    originOf(c),
+    c.get('project').id,
+    results.map((r) => r.id),
+    viewer?.id ?? null,
+  );
+  const columns: RoadmapColumn[] = ROADMAP_STATUSES.map((status) => ({
+    status,
+    posts: posts.filter((p) => p.status === status).map(publicPost),
+  }));
   return c.json(columns);
 });
 

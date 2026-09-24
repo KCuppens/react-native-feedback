@@ -223,25 +223,34 @@ adminRoutes.post('/posts/:id/merge', async (c) => {
   const target = await loadPost(c, intoId);
   if (target.mergedIntoId) fail(400, 'invalid_input', 'target is itself merged');
   const ts = now();
-  // Claim the source first, re-checking both sides in SQL: two concurrent merges (A→B, B→A)
-  // would otherwise both pass the checks above and create a cycle.
-  const claimed = await c.env.DB.prepare(
-    `UPDATE posts SET merged_into_id = ?1, status = 'closed', status_changed_at = ?2, updated_at = ?2
-     WHERE id = ?3 AND merged_into_id IS NULL AND (SELECT merged_into_id FROM posts WHERE id = ?1) IS NULL`,
-  )
-    .bind(target.id, ts, source.id)
-    .run();
-  if (!claimed.meta.changes) fail(409, 'merge_conflict', 'One of these posts was merged in the meantime.');
-  const event = await adminEvent(c, 'post.merged', source.id, { intoId: target.id });
-  await c.env.DB.batch([
+  // One transaction. The claim re-checks both sides in SQL (two concurrent merges A→B and
+  // B→A would otherwise both pass the checks above and form a cycle), and every later
+  // statement only acts if this request's claim took effect, so a failure part-way leaves
+  // nothing half-merged and a lost race changes nothing.
+  const claimedByUs = {
+    sql: 'EXISTS (SELECT 1 FROM posts WHERE id = ? AND merged_into_id = ? AND updated_at = ?)',
+    params: [source.id, target.id, ts],
+  };
+  const event = await adminEvent(c, 'post.merged', source.id, { intoId: target.id }, claimedByUs);
+  const [claim] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE posts SET merged_into_id = ?1, status = 'closed', status_changed_at = ?2, updated_at = ?2
+       WHERE id = ?3 AND merged_into_id IS NULL AND (SELECT merged_into_id FROM posts WHERE id = ?1) IS NULL`,
+    ).bind(target.id, ts, source.id),
     // Carry supporters over; users who already voted on the target keep their vote.
     c.env.DB.prepare(
-      'INSERT OR IGNORE INTO votes (post_id, user_id, value, created_at) SELECT ?, user_id, value, created_at FROM votes WHERE post_id = ?',
-    ).bind(target.id, source.id),
+      `INSERT OR IGNORE INTO votes (post_id, user_id, value, created_at)
+       SELECT ?, user_id, value, created_at FROM votes WHERE post_id = ? AND ${claimedByUs.sql}`,
+    ).bind(target.id, source.id, ...claimedByUs.params),
     recountVotes(c.env, target.id),
-    c.env.DB.prepare('UPDATE posts SET merged_into_id = ? WHERE merged_into_id = ?').bind(target.id, source.id),
+    c.env.DB.prepare(`UPDATE posts SET merged_into_id = ? WHERE merged_into_id = ? AND ${claimedByUs.sql}`).bind(
+      target.id,
+      source.id,
+      ...claimedByUs.params,
+    ),
     event.statement,
   ]);
+  if (!claim?.meta.changes) fail(409, 'merge_conflict', 'One of these posts was merged in the meantime.');
   await dispatch(c, event);
   return c.json(await reload(c, target.id));
 });
