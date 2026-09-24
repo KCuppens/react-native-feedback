@@ -9,13 +9,17 @@ beforeEach(async () => {
 
 const admin = () => ({ Authorization: `Bearer ${h.project.secretKey}` });
 const eventCount = (type: string) => (h.db.prepare('SELECT COUNT(*) AS n FROM events WHERE type = ?').get(type) as { n: number }).n;
-/** Run `race` once, right before the next D1 batch executes (i.e. after the route's reads). */
+/**
+ * Run `race` once, right before the route's write batch executes (i.e. after its reads).
+ * Single-post reads are 2-statement batches too (see postQueries), so those are skipped.
+ */
 function beforeBatch(race: () => void) {
   const DB = h.env.DB;
   h.env.DB = new Proxy(DB, {
     get(target, prop) {
       if (prop !== 'batch') return Reflect.get(target, prop);
       return (stmts: D1PreparedStatement[]) => {
+        if (stmts.length <= 2) return target.batch(stmts);
         h.env.DB = DB;
         race();
         return target.batch(stmts);

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api } from '../api';
 import { href } from '../router';
+import { usePostChanged } from './Queue';
 import { STATUS_LABELS, ErrorMessage } from '../ui';
 
 const COLUMNS: PostStatus[] = ['open', 'under_review', 'planned', 'in_progress', 'done'];
@@ -19,6 +20,7 @@ export function RoadmapPage({ projectId }: { projectId: string }) {
   const admin = api.project(projectId);
   const client = useQueryClient();
   const key = ['p', projectId, 'kanban'];
+  const changed = usePostChanged(projectId);
   // One query per column, so a busy "Open" column cannot push the others off the board.
   const posts = useQuery({
     queryKey: key,
@@ -46,7 +48,7 @@ export function RoadmapPage({ projectId }: { projectId: string }) {
       return { previous };
     },
     onError: (_e, _v, ctx) => client.setQueryData(key, ctx?.previous),
-    onSettled: () => void client.invalidateQueries({ queryKey: ['p', projectId] }),
+    onSettled: () => changed(),
   });
 
   if (posts.isPending) return <p className="muted">Loading…</p>;

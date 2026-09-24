@@ -13,13 +13,16 @@ import { dispatchEvent, prepareEvent } from '../events';
 import {
   claimAttachments,
   fileUrl,
-  getComment,
+  commentFromResults,
+  commentQueries,
   getPost,
   getPostsByIds,
   listComments,
   listPosts,
   parseSort,
   parseStatuses,
+  postFromResults,
+  postQueries,
   publicPost,
   recountComments,
   recountVotes,
@@ -149,16 +152,21 @@ publicRoutes.post('/posts', async (c) => {
   const attachmentIds = stringArray(body, 'attachmentIds', LIMITS.attachmentsPerPost);
   if (attachmentIds.length && !project.settings.allowAttachments) fail(403, 'attachments_disabled');
 
+  // An invalid request is refused before it counts against the rate limit.
   if (categoryId) await assertCategory(c, categoryId);
   const admin = isInAppAdmin(c);
-  if (!admin) await limitWrites(c, viewer.id, 'post');
 
   const id = newId();
   const ts = now();
   const moderation = project.settings.autoApprove || admin ? 'approved' : 'pending';
-  const claim = await claimAttachments(c.env, project.id, viewer.id, attachmentIds, { postId: id });
+  // Independent: the rate limit and the read-only attachment ownership check.
+  const [, claim] = await Promise.all([
+    admin ? undefined : limitWrites(c, viewer.id, 'post'),
+    claimAttachments(c.env, project.id, viewer.id, attachmentIds, { postId: id }),
+  ]);
   const event = prepareEvent(c.env, { projectId: project.id, type: 'post.created', postId: id, actorId: viewer.id, origin: originOf(c) });
-  await c.env.DB.batch([
+  // The read-back rides on the write batch: one D1 round trip for the whole submit.
+  const results = await c.env.DB.batch([
     c.env.DB.prepare(
       `INSERT INTO posts (id, project_id, author_id, title, body, category_id, moderation, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -168,10 +176,10 @@ publicRoutes.post('/posts', async (c) => {
     recountVotes(c.env, id),
     ...(claim ? [claim] : []),
     event.statement,
+    ...postQueries(c.env, project.id, id, viewer.id),
   ]);
   await dispatchEvent(c.env, ctxOf(c), event.id);
-  const post = await getPost(c.env, originOf(c), project.id, id, viewer.id);
-  return c.json(publicPost(post!), 201);
+  return c.json(publicPost(postFromResults(originOf(c), viewer.id, results)!), 201);
 });
 
 publicRoutes.post('/posts/:id/vote', async (c) => {
@@ -181,9 +189,8 @@ publicRoutes.post('/posts/:id/vote', async (c) => {
   if (value !== 1 && value !== -1 && value !== 0) fail(400, 'invalid_input', 'value must be 1, -1 or 0');
   if (value === -1 && !project.settings.allowDownvotes) fail(403, 'downvotes_disabled');
   const viewer = await requireViewer(c);
-  const post = await visiblePost(c, c.req.param('id'), viewer.id);
+  const [post] = await Promise.all([visiblePost(c, c.req.param('id'), viewer.id), limitWrites(c, viewer.id, 'vote')]);
   if (post.moderation !== 'approved' || post.mergedIntoId) fail(409, 'post_not_votable');
-  await limitWrites(c, viewer.id, 'vote');
 
   const results = await c.env.DB.batch([
     value === 0
@@ -232,7 +239,7 @@ publicRoutes.post('/posts/:id/comments', async (c) => {
     origin: originOf(c),
   });
   const claim = await claimAttachments(c.env, project.id, viewer.id, attachmentIds, { postId: post.id, commentId: id });
-  await c.env.DB.batch([
+  const results = await c.env.DB.batch([
     c.env.DB.prepare('INSERT INTO comments (id, post_id, author_id, body, is_official, created_at) VALUES (?, ?, ?, ?, ?, ?)').bind(
       id,
       post.id,
@@ -245,9 +252,10 @@ publicRoutes.post('/posts/:id/comments', async (c) => {
     recountComments(c.env, post.id),
     ...(admin ? [c.env.DB.prepare('UPDATE posts SET last_official_reply_at = ? WHERE id = ?').bind(ts, post.id)] : []),
     event.statement,
+    ...commentQueries(c.env, id),
   ]);
   await dispatchEvent(c.env, ctxOf(c), event.id);
-  return c.json(await getComment(c.env, originOf(c), id), 201);
+  return c.json(commentFromResults(originOf(c), results), 201);
 });
 
 /** Parse multipart form data, stopping at `maxBytes` even when Content-Length is missing or wrong. */
@@ -266,8 +274,11 @@ async function readFormWithLimit(req: Request, maxBytes: number): Promise<FormDa
     }
     chunks.push(value);
   }
+  // Copy into one Blob and drop the chunk list, so the parse below does not keep both alive.
+  const body = new Blob(chunks);
+  chunks.length = 0;
   try {
-    return await new Response(new Blob(chunks), { headers: { 'Content-Type': req.headers.get('Content-Type') ?? '' } }).formData();
+    return await new Response(body, { headers: { 'Content-Type': req.headers.get('Content-Type') ?? '' } }).formData();
   } catch {
     fail(400, 'invalid_form');
   }
@@ -290,7 +301,8 @@ publicRoutes.post('/uploads', async (c) => {
 
   const id = newId();
   const key = `${project.id}/${id}`;
-  await c.env.FILES.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } });
+  // R2 takes the File (a Blob) as is: no extra in-memory copy of up to 5 MB per upload.
+  await c.env.FILES.put(key, file, { httpMetadata: { contentType: file.type } });
   await c.env.DB.prepare(
     'INSERT INTO attachments (id, project_id, uploader_id, r2_key, mime, bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
   )

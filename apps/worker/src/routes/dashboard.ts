@@ -102,11 +102,13 @@ dashboardRoutes.patch('/projects/:id', async (c) => {
     const taken = await c.env.DB.prepare('SELECT 1 FROM projects WHERE slug = ?').bind(slug).first();
     if (taken) fail(409, 'slug_taken');
   }
-  await c.env.DB.prepare('UPDATE projects SET name = ?, slug = ? WHERE id = ?').bind(name, slug, project.id).run();
+  // One round trip: the update and the pending count for the summary.
+  const [, counted] = await c.env.DB.batch([
+    c.env.DB.prepare('UPDATE projects SET name = ?, slug = ? WHERE id = ?').bind(name, slug, project.id),
+    c.env.DB.prepare("SELECT COUNT(*) AS n FROM posts WHERE project_id = ? AND moderation = 'pending'").bind(project.id),
+  ]);
   forgetProject(project.id);
-  const pending = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM posts WHERE project_id = ? AND moderation = 'pending'")
-    .bind(project.id)
-    .first<{ n: number }>();
+  const pending = counted?.results[0] as { n: number } | undefined;
   return c.json(toSummary({ ...project, name, slug }, pending?.n ?? 0));
 });
 

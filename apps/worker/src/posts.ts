@@ -129,6 +129,28 @@ async function hydrate(env: Env, origin: string, rows: PostRow[], viewerId: stri
   return rows.map((r) => toPost(r, viewerId, byPost.get(r.id) ?? []));
 }
 
+/**
+ * The two reads behind one post (its row and its attachments), to run in a single D1
+ * round trip, or appended to a write batch so the response needs no extra read.
+ */
+export function postQueries(env: Env, projectId: string, postId: string, viewerId: string | null): D1PreparedStatement[] {
+  return [
+    env.DB.prepare(`${POST_SELECT} WHERE p.id = ? AND p.project_id = ?`).bind(viewerId ?? '', postId, projectId),
+    env.DB.prepare(
+      'SELECT id, post_id, comment_id, mime, width, height, bytes FROM attachments WHERE post_id = ? AND comment_id IS NULL ORDER BY created_at',
+    ).bind(postId),
+  ];
+}
+
+/** Build the post from the two `postQueries` results (the last two of a batch). */
+export function postFromResults(origin: string, viewerId: string | null, results: D1Result[]): PostRecord | null {
+  const [rows, attachments] = results.slice(-2);
+  const row = rows?.results[0] as PostRow | undefined;
+  if (!row) return null;
+  const byPost = groupAttachments(origin, (attachments?.results ?? []) as AttachmentRow[], (a) => a.post_id!);
+  return toPost(row, viewerId, byPost.get(row.id) ?? []);
+}
+
 export async function getPost(
   env: Env,
   origin: string,
@@ -136,12 +158,7 @@ export async function getPost(
   postId: string,
   viewerId: string | null,
 ): Promise<PostRecord | null> {
-  const row = await env.DB.prepare(`${POST_SELECT} WHERE p.id = ? AND p.project_id = ?`)
-    .bind(viewerId ?? '', postId, projectId)
-    .first<PostRow>();
-  if (!row) return null;
-  const [post] = await hydrate(env, origin, [row], viewerId);
-  return post!;
+  return postFromResults(origin, viewerId, await env.DB.batch(postQueries(env, projectId, postId, viewerId)));
 }
 
 export async function getPostsByIds(
@@ -176,7 +193,8 @@ export interface PostQuery {
 
 export function parseStatuses(raw: string | undefined): PostStatus[] | undefined {
   if (!raw) return undefined;
-  const list = raw.split(',').filter((s): s is PostStatus => (POST_STATUSES as readonly string[]).includes(s));
+  // Deduplicated: each status is a bound parameter, and D1 allows at most 100 per statement.
+  const list = [...new Set(raw.split(','))].filter((s): s is PostStatus => (POST_STATUSES as readonly string[]).includes(s));
   return list.length ? list : undefined;
 }
 
@@ -278,15 +296,19 @@ async function hydrateComments(env: Env, origin: string, rows: CommentRow[]): Pr
     .bind(JSON.stringify(ids))
     .all<AttachmentRow>();
   const byComment = groupAttachments(origin, results, (row) => row.comment_id!);
-  return rows.map((r) => ({
+  return rows.map((r) => toComment(r, byComment.get(r.id) ?? []));
+}
+
+function toComment(r: CommentRow, attachments: Attachment[]): Comment {
+  return {
     id: r.id,
     postId: r.post_id,
     body: r.body,
     isOfficial: r.is_official === 1,
     author: { id: r.author_id, name: r.author_name, avatarUrl: r.author_avatar, isAdmin: r.author_is_admin === 1 },
-    attachments: byComment.get(r.id) ?? [],
+    attachments,
     createdAt: r.created_at,
-  }));
+  };
 }
 
 export async function listComments(env: Env, origin: string, postId: string, offset: number, limit: number): Promise<Page<Comment>> {
@@ -302,11 +324,23 @@ export async function listComments(env: Env, origin: string, postId: string, off
   };
 }
 
-export async function getComment(env: Env, origin: string, commentId: string): Promise<Comment | null> {
-  const row = await env.DB.prepare(`${COMMENT_SELECT} WHERE cm.id = ?`).bind(commentId).first<CommentRow>();
+/** Reads for one comment, appended to the write batch that creates it (see postQueries). */
+export function commentQueries(env: Env, commentId: string): D1PreparedStatement[] {
+  return [
+    env.DB.prepare(`${COMMENT_SELECT} WHERE cm.id = ?`).bind(commentId),
+    env.DB.prepare(
+      'SELECT id, post_id, comment_id, mime, width, height, bytes FROM attachments WHERE comment_id = ? ORDER BY created_at',
+    ).bind(commentId),
+  ];
+}
+
+/** Build the comment from the two `commentQueries` results (the last two of a batch). */
+export function commentFromResults(origin: string, results: D1Result[]): Comment | null {
+  const [rows, attachments] = results.slice(-2);
+  const row = rows?.results[0] as CommentRow | undefined;
   if (!row) return null;
-  const [comment] = await hydrateComments(env, origin, [row]);
-  return comment!;
+  const byComment = groupAttachments(origin, (attachments?.results ?? []) as AttachmentRow[], (a) => a.comment_id!);
+  return toComment(row, byComment.get(row.id) ?? []);
 }
 
 /**

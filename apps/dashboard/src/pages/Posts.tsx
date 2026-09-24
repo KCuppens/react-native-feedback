@@ -4,13 +4,13 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { href } from '../router';
 import { STATUS_LABELS, StatusBadge, ErrorMessage } from '../ui';
-import { useProjectInvalidate } from './Queue';
+import { usePostChanged } from './Queue';
 
 type Moderation = 'all' | 'pending' | 'approved' | 'declined';
 
 export function PostsPage({ projectId }: { projectId: string }) {
   const admin = api.project(projectId);
-  const invalidate = useProjectInvalidate(projectId);
+  const changed = usePostChanged(projectId);
   const [moderation, setModeration] = useState<Moderation>('all');
   const [status, setStatus] = useState<PostStatus | ''>('');
   const [search, setSearch] = useState('');
@@ -29,7 +29,7 @@ export function PostsPage({ projectId }: { projectId: string }) {
   const categories = useQuery({ queryKey: ['p', projectId, 'categories'], queryFn: () => admin.listCategories() });
   const update = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Parameters<typeof admin.updatePost>[1] }) => admin.updatePost(id, patch),
-    onSuccess: invalidate,
+    onSuccess: (post) => changed({ post }),
   });
 
   return (

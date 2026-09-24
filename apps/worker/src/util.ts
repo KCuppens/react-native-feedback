@@ -178,6 +178,8 @@ export function ctxOf(c: Context<AppEnv>): ExecutionContext | undefined {
   }
 }
 
+const EDGE_PURGE_MAX = 50;
+
 /**
  * Remove R2 objects without failing the request: the rows are already gone, so a storage
  * hiccup must not turn a successful delete into a 500.
@@ -187,11 +189,14 @@ export function deleteFilesInBackground(c: Context<AppEnv>, keys: string[], what
   const work = (async () => {
     for (let i = 0; i < keys.length; i += 1000) await c.env.FILES.delete(keys.slice(i, i + 1000));
     // Also drop this colo's edge copies (keys are `<projectId>/<attachmentId>`); other colos
-    // expire on the short edge TTL set in the files route.
+    // expire on the short edge TTL set in the files route. Bounded: every purge is a
+    // subrequest, and for a large delete (a whole project) the 1h TTL does the job anyway.
     const edge = typeof caches === 'undefined' ? undefined : (caches as unknown as { default: Cache }).default;
-    if (edge) {
+    if (edge && keys.length <= EDGE_PURGE_MAX) {
       const origin = new URL(c.req.url).origin;
-      await Promise.all(keys.map((key) => edge.delete(`${origin}/v1/files/${key.split('/').pop()}`)));
+      for (let i = 0; i < keys.length; i += 10) {
+        await Promise.all(keys.slice(i, i + 10).map((key) => edge.delete(`${origin}/v1/files/${key.split('/').pop()}`)));
+      }
     }
   })().catch((error: unknown) => log('error', 'r2 cleanup failed', { what, keys: keys.length, error: String(error) }));
   const ctx = ctxOf(c);
@@ -210,4 +215,22 @@ export async function assertCategory(c: Context<AppEnv>, categoryId: string): Pr
     .bind(categoryId, c.get('project').id)
     .first();
   if (!cat) fail(400, 'invalid_category');
+}
+
+/** Runs at most `max` tasks at once; the rest wait their turn (a tiny p-limit). */
+export type Limiter = <T>(task: () => Promise<T>) => Promise<T>;
+
+export function createLimiter(max: number): Limiter {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async (task) => {
+    if (active >= max) await new Promise<void>((resolve) => waiting.push(resolve));
+    active++;
+    try {
+      return await task();
+    } finally {
+      active--;
+      waiting.shift()?.();
+    }
+  };
 }

@@ -5,6 +5,22 @@ import { ErrorMessage } from '../ui';
 import { api, latestError } from '../api';
 import { href } from '../router';
 
+/**
+ * After a post changed: write the returned post into its detail cache instead of refetching
+ * it, refetch only the post lists, and the project list (pending counts, which run a COUNT
+ * per project) only when moderation changed. Comments and categories are left alone.
+ */
+export function usePostChanged(projectId: string) {
+  const client = useQueryClient();
+  return ({ post, moderation = false, comments = false }: { post?: Post; moderation?: boolean; comments?: boolean } = {}) => {
+    if (post) client.setQueryData(['p', projectId, 'post', post.id], post);
+    for (const list of ['queue', 'posts', 'kanban']) void client.invalidateQueries({ queryKey: ['p', projectId, list] });
+    if (comments) void client.invalidateQueries({ queryKey: ['p', projectId, 'comments'] });
+    if (moderation) void client.invalidateQueries({ queryKey: ['projects'] });
+  };
+}
+
+/** Everything for a project: for settings, categories and webhooks, which touch many views. */
 export function useProjectInvalidate(projectId: string) {
   const client = useQueryClient();
   return () => {
@@ -69,12 +85,12 @@ export function QueuePage({ projectId }: { projectId: string }) {
 
 function QueueCard({ projectId, post, onModerated }: { projectId: string; post: Post; onModerated: () => void }) {
   const admin = api.project(projectId);
-  const invalidate = useProjectInvalidate(projectId);
+  const changed = usePostChanged(projectId);
   const [reason, setReason] = useState('');
   const [declining, setDeclining] = useState(false);
-  const done = () => {
+  const done = (updated: Post) => {
     onModerated();
-    invalidate();
+    changed({ post: updated, moderation: true });
   };
   const approve = useMutation({ mutationFn: () => admin.approve(post.id), onSuccess: done });
   const decline = useMutation({ mutationFn: () => admin.decline(post.id, reason.trim() || null), onSuccess: done });

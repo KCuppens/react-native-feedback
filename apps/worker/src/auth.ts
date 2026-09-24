@@ -140,8 +140,16 @@ async function teamAuthor(env: Env, projectId: string): Promise<EndUserRow> {
  * Keyed with SESSION_SECRET: the claim is readable in the cookie, and a plain hash would let
  * anyone holding a cookie test password guesses offline.
  */
-async function passwordVersion(env: Env): Promise<string> {
-  return (await hmacHex(sessionSecret(env), `pwv:${env.ADMIN_PASSWORD ?? ''}`)).slice(0, 16);
+// Fixed for an isolate's lifetime unless the secrets change, so compute it once per pair.
+let pwvCache: { secret: string; password: string; value: Promise<string> } | null = null;
+
+function passwordVersion(env: Env): Promise<string> {
+  const secret = sessionSecret(env);
+  const password = env.ADMIN_PASSWORD ?? '';
+  if (pwvCache?.secret !== secret || pwvCache.password !== password) {
+    pwvCache = { secret, password, value: hmacHex(secret, `pwv:${password}`).then((hex) => hex.slice(0, 16)) };
+  }
+  return pwvCache.value;
 }
 
 export async function createSessionCookieValue(env: Env): Promise<string> {

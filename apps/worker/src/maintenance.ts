@@ -25,7 +25,8 @@ export async function runMaintenance(env: Env, now = Date.now()): Promise<void> 
       async () => {
         const [events, limits] = await env.DB.batch([
           env.DB.prepare(
-            'DELETE FROM events WHERE (processed_at IS NOT NULL AND processed_at < ?1) OR (processed_at IS NULL AND attempts > ?2 AND created_at < ?1)',
+            // processed_at >= created_at, so the leading created_at bound changes no rows but lets the index serve it.
+            'DELETE FROM events WHERE created_at < ?1 AND (processed_at < ?1 OR (processed_at IS NULL AND attempts > ?2))',
           ).bind(now - 30 * DAY, MAX_SWEEP_ATTEMPTS),
           env.DB.prepare('DELETE FROM rate_limits WHERE window_start < ?').bind(now - DAY),
         ]);

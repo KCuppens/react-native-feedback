@@ -83,6 +83,8 @@ CREATE TABLE comments (
   deleted_at INTEGER
 );
 CREATE INDEX comments_post ON comments (post_id, created_at);
+-- Deleting a project cascades to end_users; each deleted user checks these references.
+CREATE INDEX comments_author ON comments (author_id);
 
 CREATE TABLE attachments (
   id TEXT PRIMARY KEY,
@@ -100,6 +102,7 @@ CREATE TABLE attachments (
 CREATE INDEX attachments_post ON attachments (post_id);
 CREATE INDEX attachments_comment ON attachments (comment_id);
 CREATE INDEX attachments_project ON attachments (project_id);
+CREATE INDEX attachments_uploader ON attachments (uploader_id);
 -- Lets the hourly sweep find uploads that were never attached to a post.
 CREATE INDEX attachments_unclaimed ON attachments (created_at) WHERE post_id IS NULL;
 
@@ -128,6 +131,8 @@ CREATE TABLE events (
 );
 CREATE INDEX events_project ON events (project_id, created_at DESC);
 CREATE INDEX events_unprocessed ON events (created_at) WHERE processed_at IS NULL AND attempts <= 3;
+-- Lets the hourly prune range-scan old events instead of reading the whole outbox.
+CREATE INDEX events_created ON events (created_at);
 
 -- Fixed-window counters for limits that cannot key on a user (logins, anonymous devices by IP).
 CREATE TABLE rate_limits (
@@ -135,3 +140,5 @@ CREATE TABLE rate_limits (
   window_start INTEGER NOT NULL,
   count INTEGER NOT NULL
 );
+-- The hourly prune drops expired windows.
+CREATE INDEX rate_limits_window ON rate_limits (window_start);

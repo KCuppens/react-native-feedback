@@ -87,6 +87,8 @@ app.get('/v1/public/projects/:slug', async (c) => {
   if (!flag(c.env, 'FEATURE_PUBLIC_BOARD')) fail(404, 'not_found');
   const project = await findProjectBySlug(c.env, c.req.param('slug'));
   if (!project?.settings.publicBoard) fail(404, 'not_found');
+  // Public, non-secret fields; a short cache saves the board's first request on repeat visits.
+  c.header('Cache-Control', 'public, max-age=60');
   return c.json({ name: project.name, slug: project.slug, publicKey: project.publicKey });
 });
 
@@ -102,8 +104,13 @@ async function serveSpa(c: Context<AppEnv>, prefix: '/admin/' | '/p/') {
   const url = new URL(c.req.url);
   let asset = await c.env.ASSETS.fetch(c.req.raw);
   // Client-side routes fall back to the SPA shell.
-  if (asset.status === 404) asset = await c.env.ASSETS.fetch(new Request(new URL(prefix, url), c.req.raw));
+  const fellBack = asset.status === 404;
+  if (fellBack) asset = await c.env.ASSETS.fetch(new Request(new URL(prefix, url), c.req.raw));
   const res = new Response(asset.body, asset);
+  // Vite's content-hashed bundles never change; the shell must always revalidate so a deploy
+  // is picked up. Never immutable on a fallback: that would pin HTML under a JS URL.
+  const hashed = !fellBack && asset.status === 200 && url.pathname.startsWith(`${prefix}assets/`);
+  res.headers.set('Cache-Control', hashed ? 'public, max-age=31536000, immutable' : 'no-cache');
   // The dashboard shows secrets and both pages render user content: lock them down.
   res.headers.set(
     'Content-Security-Policy',

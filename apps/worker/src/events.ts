@@ -3,7 +3,7 @@ import { signWebhook } from '@kobecuppens/feedback-core/server';
 import type { EndUserRow, Env, EventMessage } from './env';
 import { getPost, publicPost, type PostRecord } from './posts';
 import { findProjectById } from './projects';
-import { escapeHtml, flag, log, newId, now } from './util';
+import { createLimiter, escapeHtml, flag, log, newId, now, type Limiter } from './util';
 
 export interface EventInput {
   projectId: string;
@@ -67,13 +67,13 @@ export function prepareEvent(env: Env, input: EventInput, onlyIf?: { sql: string
  */
 export async function dispatchEvent(env: Env, ctx: { waitUntil(promise: Promise<unknown>): void } | undefined, id: string): Promise<void> {
   if (env.EVENTS) {
-    try {
-      await env.EVENTS.send({ eventId: id });
-    } catch (error) {
-      // The change is already committed and the outbox row is stored: the hourly
-      // sweep (maintenance.ts) delivers it. Failing the request would invite duplicates.
-      log('error', 'event enqueue failed', { eventId: id, error: String(error) });
-    }
+    // The change is already committed and the outbox row is stored: if the send fails, the
+    // hourly sweep (maintenance.ts) delivers it. So the response never waits on the queue.
+    const send = env.EVENTS.send({ eventId: id }).catch((error: unknown) =>
+      log('error', 'event enqueue failed', { eventId: id, error: String(error) }),
+    );
+    if (ctx) ctx.waitUntil(send);
+    else await send;
   } else {
     const work = processEvent(env, id).catch((error: unknown) =>
       log('error', 'event processing failed', { eventId: id, error: String(error) }),
@@ -88,12 +88,18 @@ export function retryDelaySeconds(attempts: number): number {
   return Math.min(300, 10 * 2 ** Math.max(0, attempts - 1)) + Math.floor(Math.random() * 5);
 }
 
+/** Workers allow 6 open connections per invocation; fetches beyond that queue up inside it. */
+const MAX_CONCURRENT_WEBHOOKS = 6;
+
 export async function handleEventBatch(batch: MessageBatch<EventMessage>, env: Env): Promise<void> {
-  // In parallel, so one slow webhook does not hold up the rest of the batch.
+  // In parallel, so one slow webhook does not hold up the rest of the batch. One shared
+  // limiter keeps the batch's webhook fetches within the connection limit, so a queued
+  // fetch does not burn its timeout waiting and get dropped (delivery is at-most-once).
+  const limit = createLimiter(MAX_CONCURRENT_WEBHOOKS);
   await Promise.all(
     batch.messages.map(async (message) => {
       try {
-        await processEvent(env, message.body.eventId);
+        await processEvent(env, message.body.eventId, limit);
         message.ack();
       } catch (error) {
         log('error', 'event processing failed', { eventId: message.body.eventId, error: String(error) });
@@ -108,15 +114,18 @@ function isRetryableStatus(status: number): boolean {
   return status >= 500 || status === 408 || status === 429;
 }
 
-export async function processEvent(env: Env, eventId: string): Promise<void> {
+export async function processEvent(env: Env, eventId: string, limit = createLimiter(MAX_CONCURRENT_WEBHOOKS)): Promise<void> {
   const event = await env.DB.prepare('SELECT * FROM events WHERE id = ?').bind(eventId).first<EventRow>();
   if (!event || event.processed_at) return;
-  const project = await findProjectById(env, event.project_id);
-  if (!project) return;
   const data = JSON.parse(event.payload) as Record<string, unknown> & { origin: string };
   const origin = env.PUBLIC_URL?.replace(/\/+$/, '') || data.origin;
+  // Independent lookups: the post only needs the project id, which the event already has.
+  const [project, post] = await Promise.all([
+    findProjectById(env, event.project_id),
+    event.post_id ? getPost(env, origin, event.project_id, event.post_id, null) : null,
+  ]);
+  if (!project) return;
 
-  const post = event.post_id ? await getPost(env, origin, project.id, event.post_id, null) : null;
   const author = post ? await env.DB.prepare('SELECT * FROM end_users WHERE id = ?').bind(post.authorId).first<EndUserRow>() : null;
 
   // Mark first: webhook/email delivery is at-most-once so queue retries never double-send.
@@ -135,7 +144,7 @@ export async function processEvent(env: Env, eventId: string): Promise<void> {
   });
 
   const [hooks, mail] = await Promise.allSettled([
-    deliverWebhooks(env, { eventId, projectId: project.id, type: event.type }, body),
+    deliverWebhooks(env, { eventId, projectId: project.id, type: event.type }, body, limit),
     sendEmails(env, { type: event.type, project, post, author, actorId: event.actor_id, extra, origin }),
   ]);
   // Delivery is at-most-once (the event is already claimed), so a failure here is final: log it.
@@ -165,6 +174,7 @@ async function deliverWebhooks(
   env: Env,
   { eventId, projectId, type }: { eventId: string; projectId: string; type: FeedbackEventType },
   body: string,
+  limit: Limiter,
 ): Promise<void> {
   const { results } = await env.DB.prepare('SELECT * FROM webhooks WHERE project_id = ?')
     .bind(projectId)
@@ -174,16 +184,23 @@ async function deliverWebhooks(
     targets.map(async (hook) => {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const res = await fetch(hook.url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'User-Agent': 'react-native-feedback-webhooks/1',
-              'X-Feedback-Event': type,
-              'X-Feedback-Signature': await signWebhook(hook.secret, body),
-            },
-            body,
-            signal: AbortSignal.timeout(10_000),
+          const signature = await signWebhook(hook.secret, body);
+          // The timeout starts once a connection slot is free, not while waiting for one.
+          const res = await limit(async () => {
+            const response = await fetch(hook.url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': 'react-native-feedback-webhooks/1',
+                'X-Feedback-Event': type,
+                'X-Feedback-Signature': signature,
+              },
+              body,
+              signal: AbortSignal.timeout(10_000),
+            });
+            // Only the status matters; release the connection before freeing the slot.
+            await response.body?.cancel();
+            return response;
           });
           if (res.ok) return;
           log('warn', 'webhook non-2xx', { eventId, projectId, type, hookId: hook.id, attempt, status: res.status });

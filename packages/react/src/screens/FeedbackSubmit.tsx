@@ -46,8 +46,10 @@ export function FeedbackSubmit({ onDone, onCancel, onDirtyChange }: FeedbackSubm
   // Free preview blobs on unmount (removals free their own).
   const previews = useRef<string[]>([]);
   previews.current = attachments.map((a) => a.preview);
+  const mounted = useRef(true);
   useEffect(
     () => () => {
+      mounted.current = false;
       for (const url of previews.current) URL.revokeObjectURL(url);
     },
     [],
@@ -62,6 +64,8 @@ export function FeedbackSubmit({ onDone, onCancel, onDirtyChange }: FeedbackSubm
     }
     try {
       const attachment = await upload.mutateAsync(file);
+      // Left the form mid-upload: a preview made now would never be revoked (pinning the file).
+      if (!mounted.current) return;
       setAttachments((list) => [...list, { attachment, preview: URL.createObjectURL(file) }]);
     } catch (e) {
       setError(e);

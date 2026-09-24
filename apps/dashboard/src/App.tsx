@@ -15,6 +15,12 @@ import { Modal, SecretField, ErrorMessage } from './ui';
 export function App() {
   // A 401 means "show the login"; anything else (offline, 5xx) is worth retrying.
   const me = useQuery({ queryKey: ['me'], queryFn: api.dashboard.me, retry: (count, error) => !isUnauthorized(error) && count < 2 });
+  // Start the projects list alongside the session probe instead of after it (it answers 401
+  // too when signed out, which the prefetch simply ignores).
+  const client = useQueryClient();
+  useEffect(() => {
+    void client.prefetchQuery({ queryKey: ['projects'], queryFn: api.dashboard.listProjects, retry: false });
+  }, [client]);
   if (me.isPending) return <div className="center muted">Loading…</div>;
   if (me.isError) {
     return isUnauthorized(me.error) ? (

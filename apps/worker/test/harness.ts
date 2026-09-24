@@ -67,10 +67,10 @@ export function createD1(): D1Database & { raw: DatabaseSync } {
 }
 
 export function createR2() {
-  const store = new Map<string, { body: ArrayBuffer; contentType?: string }>();
+  const store = new Map<string, { body: ArrayBuffer | Blob; contentType?: string }>();
   return {
     store,
-    put: async (key: string, body: ArrayBuffer, opts?: { httpMetadata?: { contentType?: string } }) => {
+    put: async (key: string, body: ArrayBuffer | Blob, opts?: { httpMetadata?: { contentType?: string } }) => {
       store.set(key, { body, contentType: opts?.httpMetadata?.contentType });
     },
     get: async (key: string) => {

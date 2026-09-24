@@ -5,12 +5,15 @@ import { adminActor, adminAuth, getViewer, requireFullAdmin } from '../auth';
 import { dispatchEvent, prepareEvent, toWebhookConfig, type PendingEvent } from '../events';
 import {
   attachmentKeysQuery,
-  getComment,
+  commentFromResults,
+  commentQueries,
   getPost,
   listComments,
   listPosts,
   parseSort,
   parseStatuses,
+  postFromResults,
+  postQueries,
   publicPost,
   recountComments,
   recountVotes,
@@ -46,6 +49,23 @@ async function loadPost(c: Context<AppEnv>, id: string): Promise<PostRecord> {
 }
 
 const reload = async (c: Context<AppEnv>, id: string) => publicPost(await loadPost(c, id));
+
+/**
+ * Run a write batch with the post's read-back appended, so the response costs no extra
+ * D1 round trip. `results` keeps the write statements' results at their usual indexes.
+ */
+async function writeAndReload(c: Context<AppEnv>, statements: D1PreparedStatement[], postId: string) {
+  const viewer = c.get('adminLevel') === 'moderator' ? await getViewer(c) : null;
+  const results = await c.env.DB.batch([...statements, ...postQueries(c.env, c.get('project').id, postId, viewer?.id ?? null)]);
+  const post = postFromResults(originOf(c), viewer?.id ?? null, results);
+  return { results, post: post && publicPost(post) };
+}
+
+/** A post that was just updated is gone only if it was deleted concurrently. */
+function found<T>(post: T | null): T {
+  if (!post) fail(404, 'post_not_found');
+  return post;
+}
 
 /** Batched right after a guarded UPDATE: the event is only recorded if that statement changed a row. */
 const PREVIOUS_CHANGED = { sql: 'changes() > 0', params: [] };
@@ -106,14 +126,18 @@ adminRoutes.post('/posts/:id/approve', async (c) => {
   const ts = now();
   // Guarded so two concurrent approvals record (and email) the change once.
   const event = await adminEvent(c, 'post.approved', post.id, undefined, PREVIOUS_CHANGED);
-  const [approved] = await c.env.DB.batch([
-    c.env.DB.prepare(
-      "UPDATE posts SET moderation = 'approved', decline_reason = NULL, moderated_at = ?, updated_at = ? WHERE id = ? AND moderation != 'approved'",
-    ).bind(ts, ts, post.id),
-    event.statement,
-  ]);
-  if (approved?.meta.changes) await dispatch(c, event);
-  return c.json(await reload(c, post.id));
+  const { results, post: updated } = await writeAndReload(
+    c,
+    [
+      c.env.DB.prepare(
+        "UPDATE posts SET moderation = 'approved', decline_reason = NULL, moderated_at = ?, updated_at = ? WHERE id = ? AND moderation != 'approved'",
+      ).bind(ts, ts, post.id),
+      event.statement,
+    ],
+    post.id,
+  );
+  if (results[0]?.meta.changes) await dispatch(c, event);
+  return c.json(found(updated));
 });
 
 adminRoutes.post('/posts/:id/decline', async (c) => {
@@ -124,19 +148,23 @@ adminRoutes.post('/posts/:id/decline', async (c) => {
   // Editing the reason of an already declined post is silent; only the transition to
   // declined records an event, so duplicate declines email the author once.
   const event = await adminEvent(c, 'post.declined', post.id, { reason }, PREVIOUS_CHANGED);
-  const [, declined] = await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE posts SET decline_reason = ?, updated_at = ? WHERE id = ? AND moderation = 'declined'").bind(
-      reason,
-      ts,
-      post.id,
-    ),
-    c.env.DB.prepare(
-      "UPDATE posts SET moderation = 'declined', decline_reason = ?, moderated_at = ?, updated_at = ? WHERE id = ? AND moderation != 'declined'",
-    ).bind(reason, ts, ts, post.id),
-    event.statement,
-  ]);
-  if (declined?.meta.changes) await dispatch(c, event);
-  return c.json(await reload(c, post.id));
+  const { results, post: updated } = await writeAndReload(
+    c,
+    [
+      c.env.DB.prepare("UPDATE posts SET decline_reason = ?, updated_at = ? WHERE id = ? AND moderation = 'declined'").bind(
+        reason,
+        ts,
+        post.id,
+      ),
+      c.env.DB.prepare(
+        "UPDATE posts SET moderation = 'declined', decline_reason = ?, moderated_at = ?, updated_at = ? WHERE id = ? AND moderation != 'declined'",
+      ).bind(reason, ts, ts, post.id),
+      event.statement,
+    ],
+    post.id,
+  );
+  if (results[1]?.meta.changes) await dispatch(c, event);
+  return c.json(found(updated));
 });
 
 adminRoutes.patch('/posts/:id', async (c) => {
@@ -189,12 +217,10 @@ adminRoutes.patch('/posts/:id', async (c) => {
         ]
       : []),
   ];
-  if (statements.length) {
-    const results = await c.env.DB.batch(statements);
-    const statusResult = results[sets.length ? 1 : 0];
-    if (event && statusResult?.meta.changes) await dispatch(c, event);
-  }
-  return c.json(await reload(c, post.id));
+  const { results, post: updated } = await writeAndReload(c, statements, post.id);
+  const statusResult = results[sets.length ? 1 : 0];
+  if (event && statusResult?.meta.changes) await dispatch(c, event);
+  return c.json(found(updated));
 });
 
 adminRoutes.delete('/posts/:id', async (c) => {
@@ -231,11 +257,10 @@ adminRoutes.delete('/posts/:id', async (c) => {
 });
 
 adminRoutes.post('/posts/:id/merge', async (c) => {
-  const source = await loadPost(c, c.req.param('id'));
   const body = await readJson(c.req.raw);
   const intoId = str(body, 'intoId', { min: 1, max: 64 })!;
-  if (intoId === source.id) fail(400, 'invalid_input', 'cannot merge a post into itself');
-  const target = await loadPost(c, intoId);
+  if (intoId === c.req.param('id')) fail(400, 'invalid_input', 'cannot merge a post into itself');
+  const [source, target] = await Promise.all([loadPost(c, c.req.param('id')), loadPost(c, intoId)]);
   if (target.mergedIntoId) fail(400, 'invalid_input', 'target is itself merged');
   const ts = now();
   // One transaction. The claim re-checks both sides in SQL (two concurrent merges A→B and
@@ -245,27 +270,31 @@ adminRoutes.post('/posts/:id/merge', async (c) => {
   // race changes nothing.
   const event = await adminEvent(c, 'post.merged', source.id, { intoId: target.id }, PREVIOUS_CHANGED);
   const claimedByUs = { sql: 'EXISTS (SELECT 1 FROM events WHERE id = ?)', params: [event.id] };
-  const [claim] = await c.env.DB.batch([
-    c.env.DB.prepare(
-      `UPDATE posts SET merged_into_id = ?1, status = 'closed', status_changed_at = ?2, updated_at = ?2
+  const { results, post: merged } = await writeAndReload(
+    c,
+    [
+      c.env.DB.prepare(
+        `UPDATE posts SET merged_into_id = ?1, status = 'closed', status_changed_at = ?2, updated_at = ?2
        WHERE id = ?3 AND merged_into_id IS NULL AND EXISTS (SELECT 1 FROM posts WHERE id = ?1 AND merged_into_id IS NULL)`,
-    ).bind(target.id, ts, source.id),
-    event.statement,
-    // Carry supporters over; users who already voted on the target keep their vote.
-    c.env.DB.prepare(
-      `INSERT OR IGNORE INTO votes (post_id, user_id, value, created_at)
+      ).bind(target.id, ts, source.id),
+      event.statement,
+      // Carry supporters over; users who already voted on the target keep their vote.
+      c.env.DB.prepare(
+        `INSERT OR IGNORE INTO votes (post_id, user_id, value, created_at)
        SELECT ?, user_id, value, created_at FROM votes WHERE post_id = ? AND ${claimedByUs.sql}`,
-    ).bind(target.id, source.id, ...claimedByUs.params),
-    recountVotes(c.env, target.id),
-    c.env.DB.prepare(`UPDATE posts SET merged_into_id = ? WHERE merged_into_id = ? AND ${claimedByUs.sql}`).bind(
-      target.id,
-      source.id,
-      ...claimedByUs.params,
-    ),
-  ]);
-  if (!claim?.meta.changes) fail(409, 'merge_conflict', 'One of these posts was merged or deleted in the meantime.');
+      ).bind(target.id, source.id, ...claimedByUs.params),
+      recountVotes(c.env, target.id),
+      c.env.DB.prepare(`UPDATE posts SET merged_into_id = ? WHERE merged_into_id = ? AND ${claimedByUs.sql}`).bind(
+        target.id,
+        source.id,
+        ...claimedByUs.params,
+      ),
+    ],
+    target.id,
+  );
+  if (!results[0]?.meta.changes) fail(409, 'merge_conflict', 'One of these posts was merged or deleted in the meantime.');
   await dispatch(c, event);
-  return c.json(await reload(c, target.id));
+  return c.json(found(merged));
 });
 
 adminRoutes.get('/posts/:id/comments', async (c) => {
@@ -283,7 +312,7 @@ adminRoutes.post('/posts/:id/comments', async (c) => {
   const id = newId();
   const ts = now();
   const event = await adminEvent(c, 'comment.created', post.id, { commentId: id, body: text, isOfficial: true });
-  await c.env.DB.batch([
+  const results = await c.env.DB.batch([
     c.env.DB.prepare('INSERT INTO comments (id, post_id, author_id, body, is_official, created_at) VALUES (?, ?, ?, ?, 1, ?)').bind(
       id,
       post.id,
@@ -294,9 +323,10 @@ adminRoutes.post('/posts/:id/comments', async (c) => {
     recountComments(c.env, post.id),
     c.env.DB.prepare('UPDATE posts SET last_official_reply_at = ? WHERE id = ?').bind(ts, post.id),
     event.statement,
+    ...commentQueries(c.env, id),
   ]);
   await dispatch(c, event);
-  return c.json(await getComment(c.env, originOf(c), id), 201);
+  return c.json(commentFromResults(originOf(c), results), 201);
 });
 
 adminRoutes.delete('/posts/:id/comments/:commentId', async (c) => {

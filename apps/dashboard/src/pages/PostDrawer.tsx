@@ -3,11 +3,11 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect, useState } from 'react';
 import { api, latestError } from '../api';
 import { ConfirmButton, STATUS_LABELS, StatusBadge, useDialogFocus, ErrorMessage } from '../ui';
-import { useProjectInvalidate } from './Queue';
+import { usePostChanged } from './Queue';
 
 export function PostDrawer({ projectId, postId, onClose }: { projectId: string; postId: string; onClose: () => void }) {
   const admin = api.project(projectId);
-  const invalidate = useProjectInvalidate(projectId);
+  const changed = usePostChanged(projectId);
   const client = useQueryClient();
   const post = useQuery({ queryKey: ['p', projectId, 'post', postId], queryFn: () => admin.getPost(postId) });
   const comments = useInfiniteQuery({
@@ -37,28 +37,40 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
     staleTime: 60_000,
   });
 
-  const run = <T,>(fn: () => Promise<T>) => ({ mutationFn: fn, onSuccess: invalidate });
-  const approve = useMutation(run(() => admin.approve(postId)));
-  const decline = useMutation(run(() => admin.decline(postId, declineReason.trim() || null)));
-  const setStatus = useMutation({ mutationFn: (status: PostStatus) => admin.updatePost(postId, { status }), onSuccess: invalidate });
+  // Comment changes also move the post's comment count, so refetch the post itself.
+  const commentsChanged = () => {
+    changed({ comments: true });
+    void client.invalidateQueries({ queryKey: ['p', projectId, 'post', postId] });
+  };
+  const approve = useMutation({ mutationFn: () => admin.approve(postId), onSuccess: (p) => changed({ post: p, moderation: true }) });
+  const decline = useMutation({
+    mutationFn: () => admin.decline(postId, declineReason.trim() || null),
+    onSuccess: (p) => changed({ post: p, moderation: true }),
+  });
+  const setStatus = useMutation({
+    mutationFn: (status: PostStatus) => admin.updatePost(postId, { status }),
+    onSuccess: (p) => changed({ post: p }),
+  });
   const sendReply = useMutation({
     mutationFn: () => admin.reply(postId, reply.trim()),
     onSuccess: () => {
       setReply('');
-      invalidate();
+      commentsChanged();
     },
   });
-  const removeComment = useMutation({ mutationFn: (id: string) => admin.deleteComment(postId, id), onSuccess: invalidate });
+  const removeComment = useMutation({ mutationFn: (id: string) => admin.deleteComment(postId, id), onSuccess: commentsChanged });
   const merge = useMutation({
     mutationFn: () => admin.merge(postId, mergeTarget),
-    onSuccess: () => {
-      invalidate();
+    onSuccess: (target) => {
+      changed({ post: target });
+      void client.invalidateQueries({ queryKey: ['p', projectId, 'post', postId] });
       onClose();
     },
     // Lost a race with another merge: reload so the drawer and the candidates reflect it.
     onError: (e) => {
       if (!(e instanceof FeedbackApiError && e.status === 409)) return;
-      invalidate();
+      changed();
+      void client.invalidateQueries({ queryKey: ['p', projectId, 'post', postId] });
       void client.invalidateQueries({ queryKey: ['merge-candidates', projectId] });
       setMergeTarget('');
     },
@@ -66,7 +78,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
   const remove = useMutation({
     mutationFn: () => admin.deletePost(postId),
     onSuccess: () => {
-      invalidate();
+      changed({ moderation: true });
       onClose();
     },
   });

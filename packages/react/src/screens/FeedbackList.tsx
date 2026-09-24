@@ -38,16 +38,22 @@ export function FeedbackList({ onOpenPost, onNewPost, initialSort = 'top', hideT
   const handlers = useRef({ onOpenPost, mutate: vote.mutate });
   handlers.current = { onOpenPost, mutate: vote.mutate };
 
-  // Infinite scroll where IntersectionObserver exists; a button otherwise.
+  // Infinite scroll where IntersectionObserver exists; a button otherwise. The observer is
+  // rebuilt only when a page finishes loading (its initial callback then loads the next one
+  // if the sentinel is still in view), not on every render or keystroke.
+  const paging = useRef(query);
+  paging.current = query;
+  const { hasNextPage, isFetchingNextPage } = query;
   useEffect(() => {
     const el = sentinel.current;
-    if (!el || typeof IntersectionObserver === 'undefined') return;
+    if (!el || !hasNextPage || isFetchingNextPage || typeof IntersectionObserver === 'undefined') return;
     const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting) && query.hasNextPage && !query.isFetchingNextPage) void query.fetchNextPage();
+      const q = paging.current;
+      if (entries.some((e) => e.isIntersecting) && q.hasNextPage && !q.isFetchingNextPage) void q.fetchNextPage();
     });
     io.observe(el);
     return () => io.disconnect();
-  }, [query]);
+  }, [hasNextPage, isFetchingNextPage]);
 
   return (
     <>

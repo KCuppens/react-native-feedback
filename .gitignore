@@ -8,3 +8,4 @@ coverage
 *.tsbuildinfo
 .testproof-cache
 .optimizer-cache/
+.resourceproof-cache/

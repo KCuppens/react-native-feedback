@@ -17,10 +17,24 @@ export interface FeedbackUserClaims {
 
 export const USER_TOKEN_MAX_AGE_SECONDS = 24 * 60 * 60;
 
+// Imported keys, reused across calls: the same few secrets sign every request.
+const keyCache = new Map<string, Promise<CryptoKey>>();
+const KEY_CACHE_MAX = 100;
+
+function hmacKey(secret: string): Promise<CryptoKey> {
+  let key = keyCache.get(secret);
+  if (!key) {
+    if (keyCache.size >= KEY_CACHE_MAX) keyCache.clear();
+    key = crypto.subtle.importKey('raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    keyCache.set(secret, key);
+    key.catch(() => keyCache.delete(secret));
+  }
+  return key;
+}
+
 /** Hex HMAC-SHA256, e.g. for deriving keyed identifiers on your server. */
 export async function hmacHex(secret: string, message: string): Promise<string> {
-  const key = await crypto.subtle.importKey('raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return toHex(await crypto.subtle.sign('HMAC', key, textEncoder.encode(message)));
+  return toHex(await crypto.subtle.sign('HMAC', await hmacKey(secret), textEncoder.encode(message)));
 }
 
 /**

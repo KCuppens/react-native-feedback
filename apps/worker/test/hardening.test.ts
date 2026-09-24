@@ -237,7 +237,7 @@ describe('maintenance', () => {
     h.db
       .prepare("INSERT INTO events (id, project_id, type, post_id, payload, created_at) VALUES ('stuck', ?, 'post.approved', ?, ?, ?)")
       .run(h.project.id, post.id, JSON.stringify({ origin: 'https://feedback.test' }), Date.now() - 10 * 60_000);
-    h.db.prepare("UPDATE events SET processed_at = 1 WHERE id != 'stuck'").run();
+    h.db.prepare("UPDATE events SET created_at = 1, processed_at = 1 WHERE id != 'stuck'").run();
     h.emails.length = 0;
 
     await runMaintenance(h.env, Date.now() + 25 * 3_600_000);
