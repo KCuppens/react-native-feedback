@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "description": "Drop-in feedback & roadmap board for React (DOM). Fully themeable with CSS variables, class slots and component overrides.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KCuppens/react-native-feedback.git",
+    "directory": "packages/react"
+  },
+  "homepage": "https://github.com/KCuppens/react-native-feedback#readme",
+  "bugs": "https://github.com/KCuppens/react-native-feedback/issues",
   "type": "module",
   "sideEffects": [
     "**/*.css"
