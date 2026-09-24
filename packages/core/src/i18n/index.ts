@@ -1,11 +1,15 @@
 import { deepMerge } from '../theme';
 import { FeedbackApiError } from '../types';
+import { de } from './de';
 import { en, type FeedbackStrings } from './en';
+import { es } from './es';
 import { fr } from './fr';
+import { ja } from './ja';
+import { ko } from './ko';
 import { nl } from './nl';
 
 export type { FeedbackStrings };
-export const locales = { en, nl, fr } as const;
+export const locales = { en, nl, fr, de, es, ja, ko } as const;
 export type FeedbackLocale = keyof typeof locales;
 
 type DeepPartial<T> = {

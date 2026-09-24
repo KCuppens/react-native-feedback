@@ -1,6 +1,6 @@
 {
   "name": "@kobecuppens/react-native-feedback",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Drop-in feedback & roadmap board for React Native and react-native-web. Fully themeable.",
   "license": "MIT",
   "repository": {
@@ -48,7 +48,7 @@
     "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@kobecuppens/feedback-core": "0.1.0"
+    "@kobecuppens/feedback-core": "0.2.0"
   },
   "peerDependencies": {
     "@react-native-async-storage/async-storage": ">=1.21.0",

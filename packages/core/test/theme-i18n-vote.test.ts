@@ -5,6 +5,7 @@ import {
   darkTheme,
   formatRelativeTime,
   lightTheme,
+  locales,
   matchLocale,
   nextVote,
   resolveStrings,
@@ -48,7 +49,9 @@ describe('i18n', () => {
   it('matches regional tags and falls back to English', () => {
     expect(matchLocale('nl-BE')).toBe('nl');
     expect(matchLocale('fr_CA')).toBe('fr');
-    expect(matchLocale('de-DE')).toBe('en');
+    expect(matchLocale('de-DE')).toBe('de');
+    expect(matchLocale('ja-JP')).toBe('ja');
+    expect(matchLocale('pt-BR')).toBe('en');
     expect(matchLocale(undefined)).toBe('en');
   });
 
@@ -58,6 +61,20 @@ describe('i18n', () => {
     expect(s.tabs.roadmap).toBe('Roadmap');
     expect(s.post.votes(3)).toBe('3!');
     expect(s.post.comments(2)).toBe('2 reacties');
+  });
+
+  it('fills every string in every built-in locale', () => {
+    const leaves = (value: unknown, path: string): [string, unknown][] =>
+      value && typeof value === 'object'
+        ? Object.entries(value).flatMap(([key, child]) => leaves(child, `${path}.${key}`))
+        : [[path, value]];
+    for (const [locale, strings] of Object.entries(locales)) {
+      for (const [path, value] of leaves(strings, locale)) {
+        const text = typeof value === 'function' ? (value as (arg: never) => unknown)(2 as never) : value;
+        expect(typeof text === 'string' && text.trim().length > 0, path).toBe(true);
+      }
+      expect(Object.keys(strings.status).sort()).toEqual(Object.keys(locales.en.status).sort());
+    }
   });
 
   it('formats relative time', () => {

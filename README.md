@@ -6,7 +6,7 @@ A drop-in feedback & roadmap board for all your apps. Users submit ideas and bug
 |---|---|
 | [`@kobecuppens/react-native-feedback`](packages/native) | React Native / Expo components (also run on react-native-web) |
 | [`@kobecuppens/react-feedback`](packages/react) | React DOM components (Next.js, Vite, …) |
-| [`@kobecuppens/feedback-core`](packages/core) | Types, API clients, headless hooks, theme tokens, i18n (EN/NL/FR), server signing helpers, in-memory adapter |
+| [`@kobecuppens/feedback-core`](packages/core) | Types, API clients, headless hooks, theme tokens, i18n (EN/NL/FR/DE/ES/JA/KO), server signing helpers, in-memory adapter |
 | [`apps/worker`](apps/worker) | Cloudflare Worker API (Hono + D1 + R2 + Queues + Email), serves the dashboard and public board |
 | [`apps/dashboard`](apps/dashboard) | Admin SPA at `/admin/`: review queue, posts, kanban roadmap, replies, categories, webhooks, settings & keys |
 | [`apps/public-board`](apps/public-board) | Public read-and-vote page at `/p/<slug>` |
@@ -73,7 +73,7 @@ Each app can restyle the board in up to four layers, from light-touch to full co
   styles={{ card: { borderWidth: 0 }, cardTitle: { letterSpacing: 0.2 }, fab: { borderRadius: 14 } }}
   // 3. Components: replace building blocks entirely
   components={{ PostCard: MyPostCard, VoteControl: MyVoteControl, Button: MyButton }}
-  // 4. Strings: built-in en / nl / fr (auto-detected), override any string
+  // 4. Strings: built-in en / nl / fr / de / es / ja / ko (auto-detected), override any string
   locale="nl"
   strings={{ tabs: { board: 'Ideeën' } }}
 />

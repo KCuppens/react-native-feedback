@@ -1,6 +1,6 @@
 {
   "name": "@kobecuppens/react-feedback",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Drop-in feedback & roadmap board for React (DOM). Fully themeable with CSS variables, class slots and component overrides.",
   "license": "MIT",
   "repository": {
@@ -48,7 +48,7 @@
     "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@kobecuppens/feedback-core": "0.1.0"
+    "@kobecuppens/feedback-core": "0.2.0"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5.0.0",

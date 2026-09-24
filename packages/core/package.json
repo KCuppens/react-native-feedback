@@ -1,6 +1,6 @@
 {
   "name": "@kobecuppens/feedback-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Platform-agnostic core for react-native-feedback: types, API clients, hooks, theme tokens, i18n and server signing helpers",
   "license": "MIT",
   "repository": {
