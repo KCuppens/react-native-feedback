@@ -4,6 +4,27 @@ import { QueryClient } from '@tanstack/react-query';
 /** Same-origin: the worker serves this app, so the session cookie rides along. */
 export const api = createAdminClient({ baseUrl: window.location.origin });
 
+/**
+ * Query keys in one place: invalidation matches on these prefixes, so a hand-typed key
+ * that drifts would silently stop refreshing. Everything per project sits under `project(id)`.
+ */
+export const keys = {
+  me: ['me'] as const,
+  projects: ['projects'] as const,
+  project: (projectId: string) => ['p', projectId] as const,
+  list: (projectId: string, list: 'queue' | 'posts' | 'kanban') => ['p', projectId, list] as const,
+  posts: (projectId: string, params: unknown) => ['p', projectId, 'posts', params] as const,
+  post: (projectId: string, postId: string) => ['p', projectId, 'post', postId] as const,
+  comments: (projectId: string, postId?: string) =>
+    postId ? (['p', projectId, 'comments', postId] as const) : (['p', projectId, 'comments'] as const),
+  categories: (projectId: string) => ['p', projectId, 'categories'] as const,
+  settings: (projectId: string) => ['p', projectId, 'settings'] as const,
+  secrets: (projectId: string) => ['p', projectId, 'secrets'] as const,
+  webhooks: (projectId: string) => ['p', projectId, 'webhooks'] as const,
+  mergeCandidates: (projectId: string, query?: string) =>
+    query === undefined ? (['merge-candidates', projectId] as const) : (['merge-candidates', projectId, query] as const),
+};
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

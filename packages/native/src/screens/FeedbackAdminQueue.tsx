@@ -35,10 +35,10 @@ export function FeedbackAdminQueue({ onOpenPost }: FeedbackAdminQueueProps) {
 
 function QueueItem({ post, onOpen }: { post: Post; onOpen: () => void }) {
   const { styles, strings, theme } = useUI();
-  const m = useModeration();
+  const moderation = useModeration();
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState('');
-  const failed = [m.approve, m.decline].find((mutation) => mutation.isError);
+  const failed = [moderation.approve, moderation.decline].find((mutation) => mutation.isError);
   return (
     <View style={[styles.card, { flexDirection: 'column' }]}>
       <InlineError error={failed?.error} />
@@ -65,8 +65,8 @@ function QueueItem({ post, onOpen }: { post: Post; onOpen: () => void }) {
             <Button
               label={strings.admin.confirmDecline}
               variant="danger"
-              loading={m.decline.isPending}
-              onPress={() => m.decline.mutate({ id: post.id, reason: reason.trim() || null })}
+              loading={moderation.decline.isPending}
+              onPress={() => moderation.decline.mutate({ id: post.id, reason: reason.trim() || null })}
             />
             <Button label={strings.admin.cancel} variant="secondary" onPress={() => setDeclining(false)} />
           </View>
@@ -75,8 +75,8 @@ function QueueItem({ post, onOpen }: { post: Post; onOpen: () => void }) {
         <View style={styles.adminRow}>
           <Button
             label={strings.admin.approve}
-            onPress={() => m.approve.mutate(post.id)}
-            loading={m.approve.isPending && m.approve.variables === post.id}
+            onPress={() => moderation.approve.mutate(post.id)}
+            loading={moderation.approve.isPending && moderation.approve.variables === post.id}
           />
           <Button label={strings.admin.decline} variant="secondary" onPress={() => setDeclining(true)} />
         </View>

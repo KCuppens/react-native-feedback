@@ -223,12 +223,12 @@ describe('abuse limits', () => {
 describe('maintenance', () => {
   it('removes stale unattached uploads, redelivers stuck events and prunes old rows', async () => {
     const alice = await h.as({ user: 'alice' });
-    const form = new FormData();
-    form.append('file', new File(['x'], 'a.png', { type: 'image/png' }));
-    await json(h.request('/v1/uploads', { method: 'POST', headers: alice, body: form }), 201);
-    const form2 = new FormData();
-    form2.append('file', new File(['y'], 'b.png', { type: 'image/png' }));
-    const kept = await json<{ id: string }>(h.request('/v1/uploads', { method: 'POST', headers: alice, body: form2 }), 201);
+    const staleForm = new FormData();
+    staleForm.append('file', new File(['x'], 'a.png', { type: 'image/png' }));
+    await json(h.request('/v1/uploads', { method: 'POST', headers: alice, body: staleForm }), 201);
+    const keptForm = new FormData();
+    keptForm.append('file', new File(['y'], 'b.png', { type: 'image/png' }));
+    const kept = await json<{ id: string }>(h.request('/v1/uploads', { method: 'POST', headers: alice, body: keptForm }), 201);
     await createPost({ user: 'alice' }, 'With image', { attachmentIds: [kept.id] });
 
     // A stuck event from a failed enqueue, and an old processed one.
@@ -250,7 +250,7 @@ describe('maintenance', () => {
   });
 });
 
-describe('review follow-ups', () => {
+describe('deletes, sessions, uploads and roadmap order', () => {
   it('deletes duplicates together with the post they were merged into', async () => {
     h.setSettings({ autoApprove: true });
     const target = await createPost({ user: 'alice' }, 'Target');

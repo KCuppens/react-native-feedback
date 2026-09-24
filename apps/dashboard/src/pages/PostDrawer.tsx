@@ -1,7 +1,7 @@
 import { FeedbackApiError, formatRelativeTime, locales, POST_STATUSES, type PostStatus } from '@kobecuppens/feedback-core';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { api, latestError } from '../api';
+import { api, latestError, keys } from '../api';
 import { ConfirmButton, STATUS_LABELS, StatusBadge, useDialogFocus, ErrorMessage } from '../ui';
 import { usePostChanged } from './Queue';
 
@@ -9,9 +9,9 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
   const admin = api.project(projectId);
   const changed = usePostChanged(projectId);
   const client = useQueryClient();
-  const post = useQuery({ queryKey: ['p', projectId, 'post', postId], queryFn: () => admin.getPost(postId) });
+  const post = useQuery({ queryKey: keys.post(projectId, postId), queryFn: () => admin.getPost(postId) });
   const comments = useInfiniteQuery({
-    queryKey: ['p', projectId, 'comments', postId],
+    queryKey: keys.comments(projectId, postId),
     queryFn: ({ pageParam }) => admin.listComments(postId, pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor,
@@ -31,7 +31,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
   // Searchable, so low-voted duplicates beyond the top 100 can still be picked. Loaded only
   // once the admin reaches for the merge control, and debounced like the posts search.
   const mergeCandidates = useQuery({
-    queryKey: ['merge-candidates', projectId, mergeQuery],
+    queryKey: keys.mergeCandidates(projectId, mergeQuery),
     queryFn: async () => (await admin.listPosts({ moderation: 'approved', sort: 'top', limit: 100, q: mergeQuery || undefined })).items,
     enabled: mergeOpen,
     staleTime: 60_000,
@@ -40,7 +40,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
   // Comment changes also move the post's comment count, so refetch the post itself.
   const commentsChanged = () => {
     changed({ comments: true });
-    void client.invalidateQueries({ queryKey: ['p', projectId, 'post', postId] });
+    void client.invalidateQueries({ queryKey: keys.post(projectId, postId) });
   };
   const approve = useMutation({ mutationFn: () => admin.approve(postId), onSuccess: (p) => changed({ post: p, moderation: true }) });
   const decline = useMutation({
@@ -63,15 +63,15 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
     mutationFn: () => admin.merge(postId, mergeTarget),
     onSuccess: (target) => {
       changed({ post: target });
-      void client.invalidateQueries({ queryKey: ['p', projectId, 'post', postId] });
+      void client.invalidateQueries({ queryKey: keys.post(projectId, postId) });
       onClose();
     },
     // Lost a race with another merge: reload so the drawer and the candidates reflect it.
     onError: (e) => {
       if (!(e instanceof FeedbackApiError && e.status === 409)) return;
       changed();
-      void client.invalidateQueries({ queryKey: ['p', projectId, 'post', postId] });
-      void client.invalidateQueries({ queryKey: ['merge-candidates', projectId] });
+      void client.invalidateQueries({ queryKey: keys.post(projectId, postId) });
+      void client.invalidateQueries({ queryKey: keys.mergeCandidates(projectId) });
       setMergeTarget('');
     },
   });
@@ -87,13 +87,15 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
 
   // Reply errors show next to the reply form; everything else next to the moderation panel.
   const error = latestError(approve, decline, setStatus, removeComment, merge, remove);
-  const p = post.data;
+  const current = post.data;
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <aside ref={dialog} tabIndex={-1} className="drawer" role="dialog" aria-modal="true" aria-label="Post">
         <div className="row between">
-          <span className="muted small">{p ? `${p.author.name ?? 'Anonymous'} · ${formatRelativeTime(locales.en, p.createdAt)}` : ''}</span>
+          <span className="muted small">
+            {current ? `${current.author.name ?? 'Anonymous'} · ${formatRelativeTime(locales.en, current.createdAt)}` : ''}
+          </span>
           <button type="button" className="ghost" onClick={onClose} aria-label="Close">
             ✕
           </button>
@@ -103,21 +105,21 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
         ) : post.isError ? (
           <ErrorMessage error={post.error} retry={() => post.refetch()} />
         ) : (
-          p && (
+          current && (
             <div className="stack">
-              <h2>{p.title}</h2>
+              <h2>{current.title}</h2>
               <div className="row">
-                <StatusBadge post={p} />
+                <StatusBadge post={current} />
                 <span className="muted small">
-                  ▲ {p.upvotes} · ▼ {p.downvotes} · score {p.score}
+                  ▲ {current.upvotes} · ▼ {current.downvotes} · score {current.score}
                 </span>
               </div>
-              {p.mergedIntoId && <p className="muted">Merged into another post.</p>}
-              {p.declineReason && <p className="muted">Decline reason: {p.declineReason}</p>}
-              {p.body && <p className="body">{p.body}</p>}
-              {p.attachments.length > 0 && (
+              {current.mergedIntoId && <p className="muted">Merged into another post.</p>}
+              {current.declineReason && <p className="muted">Decline reason: {current.declineReason}</p>}
+              {current.body && <p className="body">{current.body}</p>}
+              {current.attachments.length > 0 && (
                 <div className="thumbs">
-                  {p.attachments.map((a, i) => (
+                  {current.attachments.map((a, i) => (
                     <a key={a.id} href={a.url} target="_blank" rel="noreferrer" aria-label={`Attachment ${i + 1} (opens in a new tab)`}>
                       <img src={a.url} alt="" />
                     </a>
@@ -126,12 +128,12 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
               )}
 
               <section className="panel stack">
-                {p.moderation !== 'approved' && (
+                {current.moderation !== 'approved' && (
                   <div className="row">
                     <button type="button" className="primary" onClick={() => approve.mutate()} disabled={approve.isPending}>
                       Approve
                     </button>
-                    {p.moderation === 'pending' && (
+                    {current.moderation === 'pending' && (
                       <>
                         <input
                           value={declineReason}
@@ -148,7 +150,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                 )}
                 <label>
                   Status
-                  <select value={p.status} onChange={(e) => setStatus.mutate(e.target.value as PostStatus)}>
+                  <select value={current.status} onChange={(e) => setStatus.mutate(e.target.value as PostStatus)}>
                     {POST_STATUSES.map((s) => (
                       <option key={s} value={s}>
                         {STATUS_LABELS[s]}
@@ -156,7 +158,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                     ))}
                   </select>
                 </label>
-                {!p.mergedIntoId && (
+                {!current.mergedIntoId && (
                   <div className="row">
                     <input
                       type="search"
@@ -174,7 +176,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                     >
                       <option value="">Merge into…</option>
                       {mergeCandidates.data
-                        ?.filter((c) => c.id !== p.id)
+                        ?.filter((c) => c.id !== current.id)
                         .map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.title} (▲{c.score})

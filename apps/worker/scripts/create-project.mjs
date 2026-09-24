@@ -30,7 +30,7 @@ const token = (n) => {
   return out;
 };
 const keys = { publicKey: `pk_${token(24)}`, signingSecret: `fbs_${token(40)}`, secretKey: `sk_${token(40)}` };
-const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
+const sqlQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
 // Same defaults the dashboard writes (packages/core DEFAULT_PROJECT_SETTINGS).
 const settings = JSON.stringify({
   autoApprove: false,
@@ -45,13 +45,13 @@ const settings = JSON.stringify({
   adminEmail: null,
 });
 const sql = `INSERT INTO projects (id, slug, name, public_key, signing_secret, secret_key_hash, settings, created_at) VALUES (${[
-  q(randomUUID()),
-  q(slug),
-  q(name),
-  q(keys.publicKey),
-  q(keys.signingSecret),
-  q(createHash('sha256').update(keys.secretKey).digest('hex')),
-  q(settings),
+  sqlQuote(randomUUID()),
+  sqlQuote(slug),
+  sqlQuote(name),
+  sqlQuote(keys.publicKey),
+  sqlQuote(keys.signingSecret),
+  sqlQuote(createHash('sha256').update(keys.secretKey).digest('hex')),
+  sqlQuote(settings),
   Date.now(),
 ].join(', ')});`;
 

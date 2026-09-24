@@ -7,14 +7,14 @@ import { useUI } from '../ui';
 export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) => void }) {
   const { slot, strings } = useUI();
   const query = useAdminQueue();
-  const m = useModeration();
+  const moderation = useModeration();
   const [declining, setDeclining] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const startDecline = (id: string | null) => {
     setDeclining(id);
     setReason('');
   };
-  const failed = [m.approve, m.decline].find((mutation) => mutation.isError);
+  const failed = [moderation.approve, moderation.decline].find((mutation) => mutation.isError);
   const posts = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
 
   if (query.isPending) return <Loading />;
@@ -51,9 +51,9 @@ export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) =>
                   <Button
                     label={strings.admin.confirmDecline}
                     variant="danger"
-                    loading={m.decline.isPending}
+                    loading={moderation.decline.isPending}
                     onClick={() =>
-                      m.decline.mutate({ id: post.id, reason: reason.trim() || null }, { onSuccess: () => startDecline(null) })
+                      moderation.decline.mutate({ id: post.id, reason: reason.trim() || null }, { onSuccess: () => startDecline(null) })
                     }
                   />
                   <Button label={strings.admin.cancel} variant="secondary" onClick={() => startDecline(null)} />
@@ -63,8 +63,8 @@ export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) =>
               <div {...slot('adminRow')}>
                 <Button
                   label={strings.admin.approve}
-                  onClick={() => m.approve.mutate(post.id)}
-                  loading={m.approve.isPending && m.approve.variables === post.id}
+                  onClick={() => moderation.approve.mutate(post.id)}
+                  loading={moderation.approve.isPending && moderation.approve.variables === post.id}
                 />
                 <Button label={strings.admin.decline} variant="secondary" onClick={() => startDecline(post.id)} />
               </div>

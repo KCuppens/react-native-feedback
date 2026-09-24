@@ -5,6 +5,12 @@ import { fail } from './util';
 export const LIMITS = {
   ...BOARD_LIMITS,
   declineReasonMax: 500,
+  /** Ids arrive in bodies (categoryId, intoId); nothing we issue is longer. */
+  idMax: 64,
+  categoryNameMax: 40,
+  categoryColorMax: 32,
+  projectNameMax: 80,
+  slugMax: 48,
   /** Bounds each event's delivery fan-out (see handleEventBatch). */
   webhooksPerProject: 10,
   postsPerHour: 10,
@@ -147,6 +153,6 @@ export function slugify(name: string): string {
       .replace(/[̀-ͯ]/g, '')
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
-      .slice(0, 48) || 'project'
+      .slice(0, LIMITS.slugMax) || 'project'
   );
 }

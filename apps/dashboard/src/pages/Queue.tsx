@@ -2,7 +2,7 @@ import { formatRelativeTime, locales, type Post } from '@kobecuppens/feedback-co
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { ErrorMessage } from '../ui';
-import { api, latestError } from '../api';
+import { api, latestError, keys } from '../api';
 import { href } from '../router';
 
 /**
@@ -13,10 +13,10 @@ import { href } from '../router';
 export function usePostChanged(projectId: string) {
   const client = useQueryClient();
   return ({ post, moderation = false, comments = false }: { post?: Post; moderation?: boolean; comments?: boolean } = {}) => {
-    if (post) client.setQueryData(['p', projectId, 'post', post.id], post);
-    for (const list of ['queue', 'posts', 'kanban']) void client.invalidateQueries({ queryKey: ['p', projectId, list] });
-    if (comments) void client.invalidateQueries({ queryKey: ['p', projectId, 'comments'] });
-    if (moderation) void client.invalidateQueries({ queryKey: ['projects'] });
+    if (post) client.setQueryData(keys.post(projectId, post.id), post);
+    for (const list of ['queue', 'posts', 'kanban'] as const) void client.invalidateQueries({ queryKey: keys.list(projectId, list) });
+    if (comments) void client.invalidateQueries({ queryKey: keys.comments(projectId) });
+    if (moderation) void client.invalidateQueries({ queryKey: keys.projects });
   };
 }
 
@@ -24,14 +24,14 @@ export function usePostChanged(projectId: string) {
 export function useProjectInvalidate(projectId: string) {
   const client = useQueryClient();
   return () => {
-    void client.invalidateQueries({ queryKey: ['p', projectId] });
-    void client.invalidateQueries({ queryKey: ['projects'] });
+    void client.invalidateQueries({ queryKey: keys.project(projectId) });
+    void client.invalidateQueries({ queryKey: keys.projects });
   };
 }
 
 export function QueuePage({ projectId }: { projectId: string }) {
   const admin = api.project(projectId);
-  const queue = useQuery({ queryKey: ['p', projectId, 'queue'], queryFn: () => admin.listQueue() });
+  const queue = useQuery({ queryKey: keys.list(projectId, 'queue'), queryFn: () => admin.listQueue() });
 
   // Approving or declining here removes the card, and focus with it: move it to the card that
   // took its place (or the new last one, or the empty state) so keyboard users keep going.

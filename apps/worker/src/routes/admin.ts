@@ -1,4 +1,4 @@
-import { FEEDBACK_EVENT_TYPES, POST_STATUSES, type Moderation, type PostStatus } from '@kobecuppens/feedback-core';
+import { FEEDBACK_EVENT_TYPES, MODERATION_STATES, POST_STATUSES, type Moderation, type PostStatus } from '@kobecuppens/feedback-core';
 import { Hono, type Context } from 'hono';
 import type { AppEnv } from '../env';
 import { adminActor, adminAuth, getViewer, requireFullAdmin } from '../auth';
@@ -48,8 +48,6 @@ async function loadPost(c: Context<AppEnv>, id: string): Promise<PostRecord> {
   return post;
 }
 
-const reload = async (c: Context<AppEnv>, id: string) => publicPost(await loadPost(c, id));
-
 /**
  * Run a write batch with the post's read-back appended, so the response costs no extra
  * D1 round trip. `results` keeps the write statements' results at their usual indexes.
@@ -90,7 +88,7 @@ const dispatch = (c: Context<AppEnv>, event: PendingEvent) => dispatchEvent(c.en
 
 adminRoutes.get('/posts', async (c) => {
   const raw = c.req.query('moderation');
-  const moderation: Moderation | 'all' = raw === 'pending' || raw === 'approved' || raw === 'declined' ? raw : 'all';
+  const moderation: Moderation | 'all' = (MODERATION_STATES as readonly string[]).includes(raw ?? '') ? (raw as Moderation) : 'all';
   const page = await listPosts(c.env, originOf(c), {
     projectId: c.get('project').id,
     viewerId: null,
@@ -118,7 +116,7 @@ adminRoutes.get('/queue', async (c) => {
   return c.json({ items: page.items.map(publicPost), nextCursor: page.nextCursor });
 });
 
-adminRoutes.get('/posts/:id', async (c) => c.json(await reload(c, c.req.param('id'))));
+adminRoutes.get('/posts/:id', async (c) => c.json(publicPost(await loadPost(c, c.req.param('id')))));
 
 adminRoutes.post('/posts/:id/approve', async (c) => {
   const post = await loadPost(c, c.req.param('id'));
@@ -183,7 +181,7 @@ adminRoutes.patch('/posts/:id', async (c) => {
   }
   if (body.categoryId !== undefined) {
     // A blank string clears the category rather than failing the foreign key.
-    const categoryId = str(body, 'categoryId', { max: 64, nullable: true }) || null;
+    const categoryId = str(body, 'categoryId', { max: LIMITS.idMax, nullable: true }) || null;
     if (categoryId) await assertCategory(c, categoryId);
     sets.push('category_id = ?');
     params.push(categoryId);
@@ -258,7 +256,7 @@ adminRoutes.delete('/posts/:id', async (c) => {
 
 adminRoutes.post('/posts/:id/merge', async (c) => {
   const body = await readJson(c.req.raw);
-  const intoId = str(body, 'intoId', { min: 1, max: 64 })!;
+  const intoId = str(body, 'intoId', { min: 1, max: LIMITS.idMax })!;
   if (intoId === c.req.param('id')) fail(400, 'invalid_input', 'cannot merge a post into itself');
   const [source, target] = await Promise.all([loadPost(c, c.req.param('id')), loadPost(c, intoId)]);
   if (target.mergedIntoId) fail(400, 'invalid_input', 'target is itself merged');
@@ -355,8 +353,8 @@ config.get('/categories', async (c) => c.json(await loadCategories(c)));
 
 config.post('/categories', async (c) => {
   const body = await readJson(c.req.raw);
-  const name = str(body, 'name', { min: 1, max: 40 })!;
-  const color = str(body, 'color', { max: 32, optional: true, nullable: true }) ?? null;
+  const name = str(body, 'name', { min: 1, max: LIMITS.categoryNameMax })!;
+  const color = str(body, 'color', { max: LIMITS.categoryColorMax, optional: true, nullable: true }) ?? null;
   const max = await c.env.DB.prepare('SELECT COALESCE(MAX(sort), -1) AS m FROM categories WHERE project_id = ?')
     .bind(c.get('project').id)
     .first<{ m: number }>();
@@ -369,8 +367,8 @@ config.post('/categories', async (c) => {
 
 config.patch('/categories/:id', async (c) => {
   const body = await readJson(c.req.raw);
-  const name = str(body, 'name', { min: 1, max: 40, optional: true });
-  const color = str(body, 'color', { max: 32, optional: true, nullable: true });
+  const name = str(body, 'name', { min: 1, max: LIMITS.categoryNameMax, optional: true });
+  const color = str(body, 'color', { max: LIMITS.categoryColorMax, optional: true, nullable: true });
   const sort = body.sort;
   if (sort !== undefined && (typeof sort !== 'number' || !Number.isInteger(sort))) fail(400, 'invalid_input', 'sort must be an integer');
   const existing = await c.env.DB.prepare('SELECT id, name, color, sort FROM categories WHERE id = ? AND project_id = ?')

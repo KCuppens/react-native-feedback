@@ -117,8 +117,8 @@ function isRetryableStatus(status: number): boolean {
 export async function processEvent(env: Env, eventId: string, limit = createLimiter(MAX_CONCURRENT_WEBHOOKS)): Promise<void> {
   const event = await env.DB.prepare('SELECT * FROM events WHERE id = ?').bind(eventId).first<EventRow>();
   if (!event || event.processed_at) return;
-  const data = JSON.parse(event.payload) as Record<string, unknown> & { origin: string };
-  const origin = env.PUBLIC_URL?.replace(/\/+$/, '') || data.origin;
+  const payload = JSON.parse(event.payload) as Record<string, unknown> & { origin: string };
+  const origin = env.PUBLIC_URL?.replace(/\/+$/, '') || payload.origin;
   // Independent lookups: the post only needs the project id, which the event already has.
   const [project, post] = await Promise.all([
     findProjectById(env, event.project_id),
@@ -134,7 +134,7 @@ export async function processEvent(env: Env, eventId: string, limit = createLimi
     .run();
   if (!claimed.meta.changes) return;
 
-  const { origin: _origin, snapshot, ...extra } = data;
+  const { origin: _origin, snapshot, ...extra } = payload;
   const body = JSON.stringify({
     id: event.id,
     type: event.type,

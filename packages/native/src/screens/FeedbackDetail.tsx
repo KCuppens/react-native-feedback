@@ -202,11 +202,11 @@ function Composer({ postId }: { postId: string }) {
 
 function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void }) {
   const { styles, strings, theme } = useUI();
-  const m = useModeration();
+  const moderation = useModeration();
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const failed = [m.approve, m.decline, m.update, m.remove].find((mutation) => mutation.isError);
+  const failed = [moderation.approve, moderation.decline, moderation.update, moderation.remove].find((mutation) => mutation.isError);
   // The question replaces the button that asked it, so tell screen reader users it is waiting.
   useEffect(() => {
     if (confirmDelete) AccessibilityInfo.announceForAccessibility(strings.admin.confirmDelete);
@@ -217,7 +217,7 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
       <InlineError error={failed?.error} />
       {post.moderation !== 'approved' && (
         <View style={styles.adminRow}>
-          <Button label={strings.admin.approve} onPress={() => m.approve.mutate(post.id)} loading={m.approve.isPending} />
+          <Button label={strings.admin.approve} onPress={() => moderation.approve.mutate(post.id)} loading={moderation.approve.isPending} />
           {post.moderation === 'pending' && !declining && (
             <Button label={strings.admin.decline} variant="secondary" onPress={() => setDeclining(true)} />
           )}
@@ -237,8 +237,10 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
             <Button
               label={strings.admin.confirmDecline}
               variant="danger"
-              loading={m.decline.isPending}
-              onPress={() => m.decline.mutate({ id: post.id, reason: reason.trim() || null }, { onSuccess: () => setDeclining(false) })}
+              loading={moderation.decline.isPending}
+              onPress={() =>
+                moderation.decline.mutate({ id: post.id, reason: reason.trim() || null }, { onSuccess: () => setDeclining(false) })
+              }
             />
             <Button label={strings.admin.cancel} variant="secondary" onPress={() => setDeclining(false)} />
           </View>
@@ -254,7 +256,7 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
                 label={strings.status[s]}
                 active={post.status === s}
                 onPress={() => {
-                  if (!m.update.isPending) m.update.mutate({ id: post.id, patch: { status: s } });
+                  if (!moderation.update.isPending) moderation.update.mutate({ id: post.id, patch: { status: s } });
                 }}
               />
             ))}
@@ -270,8 +272,8 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
             <Button
               label={strings.admin.delete}
               variant="danger"
-              loading={m.remove.isPending}
-              onPress={() => m.remove.mutate(post.id, { onSuccess: () => onDeleted?.() })}
+              loading={moderation.remove.isPending}
+              onPress={() => moderation.remove.mutate(post.id, { onSuccess: () => onDeleted?.() })}
             />
             <Button label={strings.admin.cancel} variant="secondary" onPress={() => setConfirmDelete(false)} />
           </View>

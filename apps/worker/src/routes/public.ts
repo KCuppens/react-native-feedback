@@ -148,7 +148,7 @@ publicRoutes.post('/posts', async (c) => {
   const title = str(body, 'title', { min: LIMITS.titleMin, max: LIMITS.titleMax })!;
   const text = str(body, 'body', { max: LIMITS.bodyMax, optional: true }) ?? '';
   // `||` so a blank string means "no category" instead of failing the foreign key.
-  const categoryId = str(body, 'categoryId', { max: 64, optional: true, nullable: true }) || null;
+  const categoryId = str(body, 'categoryId', { max: LIMITS.idMax, optional: true, nullable: true }) || null;
   const attachmentIds = stringArray(body, 'attachmentIds', LIMITS.attachmentsPerPost);
   if (attachmentIds.length && !project.settings.allowAttachments) fail(403, 'attachments_disabled');
 
@@ -323,11 +323,11 @@ publicRoutes.get('/roadmap', async (c) => {
          ORDER BY CASE WHEN status = 'done' THEN -COALESCE(status_changed_at, 0) ELSE -score END, created_at DESC
        ) AS rn
        FROM posts
-       WHERE project_id = ? AND moderation = 'approved' AND merged_into_id IS NULL AND status IN ('planned', 'in_progress', 'done')
+       WHERE project_id = ? AND moderation = 'approved' AND merged_into_id IS NULL AND status IN (SELECT value FROM json_each(?))
      )
      SELECT id, status FROM ranked WHERE rn <= ? ORDER BY status, rn`,
   )
-    .bind(c.get('project').id, ROADMAP_COLUMN_SIZE)
+    .bind(c.get('project').id, JSON.stringify(ROADMAP_STATUSES), ROADMAP_COLUMN_SIZE)
     .all<{ id: string; status: string }>();
   const posts = await getPostsByIds(
     c.env,

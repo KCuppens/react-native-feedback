@@ -9,3 +9,4 @@ coverage
 .testproof-cache
 .optimizer-cache/
 .resourceproof-cache/
+.cleanproof-cache/

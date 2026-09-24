@@ -1,7 +1,7 @@
 import type { ProjectSettings, ProjectSummary } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, latestError } from '../api';
+import { api, latestError, keys } from '../api';
 import { navigate } from '../router';
 import { ConfirmButton, SecretField, ErrorMessage } from '../ui';
 import { useProjectInvalidate } from './Queue';
@@ -26,8 +26,8 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
   const admin = api.project(project.id);
   const client = useQueryClient();
   const invalidate = useProjectInvalidate(project.id);
-  const settings = useQuery({ queryKey: ['p', project.id, 'settings'], queryFn: () => admin.getSettings() });
-  const secrets = useQuery({ queryKey: ['p', project.id, 'secrets'], queryFn: () => api.dashboard.getSecrets(project.id) });
+  const settings = useQuery({ queryKey: keys.settings(project.id), queryFn: () => admin.getSettings() });
+  const secrets = useQuery({ queryKey: keys.secrets(project.id), queryFn: () => api.dashboard.getSecrets(project.id) });
   const [newSecretKey, setNewSecretKey] = useState<string | null>(null);
   const [name, setName] = useState(project.name);
   const [adminEmail, setAdminEmail] = useState<string | null>(null);
@@ -36,7 +36,7 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
   const save = useMutation({
     mutationFn: (patch: Partial<ProjectSettings>) => admin.updateSettings(patch),
     onSuccess: (next) => {
-      client.setQueryData(['p', project.id, 'settings'], next);
+      client.setQueryData(keys.settings(project.id), next);
       invalidate();
     },
   });
@@ -45,7 +45,7 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
     mutationFn: (key: 'public' | 'signing' | 'secret') => api.dashboard.rotateKey(project.id, key),
     onSuccess: (res) => {
       if (res.secretKey) setNewSecretKey(res.secretKey);
-      void client.invalidateQueries({ queryKey: ['p', project.id, 'secrets'] });
+      void client.invalidateQueries({ queryKey: keys.secrets(project.id) });
       invalidate();
     },
   });
@@ -57,7 +57,7 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
     },
   });
 
-  const s = settings.data;
+  const current = settings.data;
   const error = latestError(save, rename, rotate, remove);
   const origin = window.location.origin;
 
@@ -69,13 +69,13 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
         <h3>Board behaviour</h3>
         {settings.isError ? (
           <ErrorMessage error={settings.error} retry={() => settings.refetch()} />
-        ) : !s ? (
+        ) : !current ? (
           <p className="muted">Loading…</p>
         ) : (
           <>
             {TOGGLES.map((t) => (
               <label key={t.key} className="toggle">
-                <input type="checkbox" checked={Boolean(s[t.key])} onChange={(e) => save.mutate({ [t.key]: e.target.checked })} />
+                <input type="checkbox" checked={Boolean(current[t.key])} onChange={(e) => save.mutate({ [t.key]: e.target.checked })} />
                 <span>
                   {t.label}
                   {t.help && <span className="muted small block">{t.help}</span>}
@@ -87,7 +87,7 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
               <div className="row">
                 <input
                   type="email"
-                  value={adminEmail ?? s.adminEmail ?? ''}
+                  value={adminEmail ?? current.adminEmail ?? ''}
                   onChange={(e) => setAdminEmail(e.target.value)}
                   placeholder="Defaults to ADMIN_EMAIL on the worker"
                 />
@@ -100,7 +100,7 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
                 </button>
               </div>
             </label>
-            {s.publicBoard && (
+            {current.publicBoard && (
               <p className="small">
                 Public board: <a href={`${origin}/p/${project.slug}`} target="_blank" rel="noreferrer">{`${origin}/p/${project.slug}`}</a>
               </p>

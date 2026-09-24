@@ -10,7 +10,7 @@ beforeEach(async () => {
 const admin = () => ({ Authorization: `Bearer ${h.project.secretKey}` });
 const eventCount = (type: string) => (h.db.prepare('SELECT COUNT(*) AS n FROM events WHERE type = ?').get(type) as { n: number }).n;
 
-describe('bulletproof round 2', () => {
+describe('concurrency guards, edge purges and dead-lettering', () => {
   it('records concurrent duplicate approvals once', async () => {
     const post = (await (
       await h.request('/v1/posts', { method: 'POST', headers: await h.as({ user: 'alice', email: 'a@x.io' }), json: { title: 'Twice' } })

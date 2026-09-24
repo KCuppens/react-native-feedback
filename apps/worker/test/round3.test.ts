@@ -30,7 +30,7 @@ function beforeBatch(race: () => void) {
 const create = async (title: string, user: string, email?: string) =>
   (await (await h.request('/v1/posts', { method: 'POST', headers: await h.as({ user, email }), json: { title } })).json()) as Post;
 
-describe('bulletproof round 3', () => {
+describe('moderation races and outbox sweep', () => {
   it('records a decline once and edits the reason silently afterwards', async () => {
     const post = await create('Nope', 'alice', 'a@x.io');
     h.emails.length = 0;

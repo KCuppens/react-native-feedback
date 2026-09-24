@@ -49,6 +49,9 @@ interface AttachmentRow {
   bytes: number;
 }
 
+/** Columns behind AttachmentRow, shared by every attachment lookup. */
+const ATTACHMENT_SELECT = 'SELECT id, post_id, comment_id, mime, width, height, bytes FROM attachments';
+
 const POST_SELECT = `
 SELECT p.*,
   a.name AS author_name, a.avatar_url AS author_avatar, a.is_admin AS author_is_admin,
@@ -121,7 +124,7 @@ async function hydrate(env: Env, origin: string, rows: PostRow[], viewerId: stri
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const { results } = await env.DB.prepare(
-    `SELECT id, post_id, comment_id, mime, width, height, bytes FROM attachments WHERE post_id IN (SELECT value FROM json_each(?)) AND comment_id IS NULL ORDER BY created_at`,
+    `${ATTACHMENT_SELECT} WHERE post_id IN (SELECT value FROM json_each(?)) AND comment_id IS NULL ORDER BY created_at`,
   )
     .bind(JSON.stringify(ids))
     .all<AttachmentRow>();
@@ -136,9 +139,7 @@ async function hydrate(env: Env, origin: string, rows: PostRow[], viewerId: stri
 export function postQueries(env: Env, projectId: string, postId: string, viewerId: string | null): D1PreparedStatement[] {
   return [
     env.DB.prepare(`${POST_SELECT} WHERE p.id = ? AND p.project_id = ?`).bind(viewerId ?? '', postId, projectId),
-    env.DB.prepare(
-      'SELECT id, post_id, comment_id, mime, width, height, bytes FROM attachments WHERE post_id = ? AND comment_id IS NULL ORDER BY created_at',
-    ).bind(postId),
+    env.DB.prepare(`${ATTACHMENT_SELECT} WHERE post_id = ? AND comment_id IS NULL ORDER BY created_at`).bind(postId),
   ];
 }
 
@@ -290,9 +291,7 @@ FROM comments cm JOIN end_users a ON a.id = cm.author_id`;
 async function hydrateComments(env: Env, origin: string, rows: CommentRow[]): Promise<Comment[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
-  const { results } = await env.DB.prepare(
-    `SELECT id, post_id, comment_id, mime, width, height, bytes FROM attachments WHERE comment_id IN (SELECT value FROM json_each(?)) ORDER BY created_at`,
-  )
+  const { results } = await env.DB.prepare(`${ATTACHMENT_SELECT} WHERE comment_id IN (SELECT value FROM json_each(?)) ORDER BY created_at`)
     .bind(JSON.stringify(ids))
     .all<AttachmentRow>();
   const byComment = groupAttachments(origin, results, (row) => row.comment_id!);
@@ -329,9 +328,7 @@ export async function listComments(env: Env, origin: string, postId: string, off
 export function commentQueries(env: Env, commentId: string): D1PreparedStatement[] {
   return [
     env.DB.prepare(`${COMMENT_SELECT} WHERE cm.id = ?`).bind(commentId),
-    env.DB.prepare(
-      'SELECT id, post_id, comment_id, mime, width, height, bytes FROM attachments WHERE comment_id = ? ORDER BY created_at',
-    ).bind(commentId),
+    env.DB.prepare(`${ATTACHMENT_SELECT} WHERE comment_id = ? ORDER BY created_at`).bind(commentId),
   ];
 }
 

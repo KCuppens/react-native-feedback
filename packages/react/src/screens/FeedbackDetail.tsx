@@ -189,7 +189,7 @@ function useSwapFocus(open: boolean) {
 
 function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void }) {
   const { slot, strings } = useUI();
-  const m = useModeration();
+  const moderation = useModeration();
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -212,7 +212,7 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
     e.preventDefault();
     cancel();
   };
-  const failed = [m.approve, m.decline, m.update, m.remove].find((mutation) => mutation.isError);
+  const failed = [moderation.approve, moderation.decline, moderation.update, moderation.remove].find((mutation) => mutation.isError);
   return (
     <section
       {...slot('adminBar')}
@@ -231,9 +231,9 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
             label={strings.admin.approve}
             onClick={() => {
               approvedHere.current = true;
-              m.approve.mutate(post.id, { onError: () => (approvedHere.current = false) });
+              moderation.approve.mutate(post.id, { onError: () => (approvedHere.current = false) });
             }}
-            loading={m.approve.isPending}
+            loading={moderation.approve.isPending}
           />
           {post.moderation === 'pending' && <Button label={strings.admin.decline} variant="secondary" onClick={() => setDeclining(true)} />}
         </div>
@@ -253,8 +253,10 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
             <Button
               label={strings.admin.confirmDecline}
               variant="danger"
-              loading={m.decline.isPending}
-              onClick={() => m.decline.mutate({ id: post.id, reason: reason.trim() || null }, { onSuccess: () => setDeclining(false) })}
+              loading={moderation.decline.isPending}
+              onClick={() =>
+                moderation.decline.mutate({ id: post.id, reason: reason.trim() || null }, { onSuccess: () => setDeclining(false) })
+              }
             />
             <Button label={strings.admin.cancel} variant="secondary" onClick={() => setDeclining(false)} />
           </div>
@@ -269,7 +271,7 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
                 key={s}
                 label={strings.status[s]}
                 active={post.status === s}
-                onClick={() => !m.update.isPending && m.update.mutate({ id: post.id, patch: { status: s } })}
+                onClick={() => !moderation.update.isPending && moderation.update.mutate({ id: post.id, patch: { status: s } })}
               />
             ))}
           </div>
@@ -284,8 +286,8 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
             <Button
               label={strings.admin.delete}
               variant="danger"
-              loading={m.remove.isPending}
-              onClick={() => m.remove.mutate(post.id, { onSuccess: () => onDeleted?.() })}
+              loading={moderation.remove.isPending}
+              onClick={() => moderation.remove.mutate(post.id, { onSuccess: () => onDeleted?.() })}
             />
             <Button label={strings.admin.cancel} variant="secondary" onClick={() => setConfirmDelete(false)} />
           </div>

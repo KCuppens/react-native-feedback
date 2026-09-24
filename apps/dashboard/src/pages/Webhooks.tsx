@@ -1,14 +1,14 @@
 import { FEEDBACK_EVENT_TYPES, type FeedbackEventType } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api } from '../api';
+import { api, keys } from '../api';
 import { ConfirmButton, ErrorMessage, SecretField } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 export function WebhooksPage({ projectId }: { projectId: string }) {
   const admin = api.project(projectId);
   const invalidate = useProjectInvalidate(projectId);
-  const hooks = useQuery({ queryKey: ['p', projectId, 'webhooks'], queryFn: () => admin.listWebhooks() });
+  const hooks = useQuery({ queryKey: keys.webhooks(projectId), queryFn: () => admin.listWebhooks() });
   const [url, setUrl] = useState('');
   const [events, setEvents] = useState<FeedbackEventType[]>(['post.created', 'post.status_changed']);
   const create = useMutation({

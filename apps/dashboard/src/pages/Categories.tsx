@@ -1,14 +1,14 @@
 import type { Category } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { api, latestError } from '../api';
+import { api, latestError, keys } from '../api';
 import { ConfirmButton, ErrorMessage } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 export function CategoriesPage({ projectId }: { projectId: string }) {
   const admin = api.project(projectId);
   const invalidate = useProjectInvalidate(projectId);
-  const categories = useQuery({ queryKey: ['p', projectId, 'categories'], queryFn: () => admin.listCategories() });
+  const categories = useQuery({ queryKey: keys.categories(projectId), queryFn: () => admin.listCategories() });
   const [name, setName] = useState('');
   const [color, setColor] = useState('#4F46E5');
   const create = useMutation({

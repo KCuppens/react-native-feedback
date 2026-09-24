@@ -4,6 +4,7 @@ import type {
   Comment,
   FeedbackEventType,
   ListPostsParams,
+  Moderation,
   Page,
   Post,
   ProjectSecrets,
@@ -25,7 +26,7 @@ export interface AdminClientOptions {
   timeoutMs?: number;
 }
 
-export type AdminListParams = ListPostsParams & { moderation?: 'pending' | 'approved' | 'declined' | 'all' };
+export type AdminListParams = ListPostsParams & { moderation?: Moderation | 'all' };
 
 /**
  * Typed client for `/v1/admin/*` and `/v1/dashboard/*`. Usable from Node,
@@ -56,39 +57,37 @@ export function createAdminClient(options: AdminClientOptions) {
   }
 
   /** Everything scoped to a single project. `projectId` is ignored with a secret key. */
-  const project = (projectId?: string) => ({
-    listPosts: (p: AdminListParams = {}) =>
-      request<Page<Post>>(
-        'GET',
-        `/v1/admin/posts${q({ sort: p.sort, status: p.status, category: p.categoryId, q: p.q, cursor: p.cursor, limit: p.limit, moderation: p.moderation })}`,
-        undefined,
-        projectId,
-      ),
-    getPost: (id: string) => request<Post>('GET', `/v1/admin/posts/${id}`, undefined, projectId),
-    listQueue: (cursor?: string | null) => request<Page<Post>>('GET', `/v1/admin/queue${q({ cursor })}`, undefined, projectId),
-    approve: (id: string) => request<Post>('POST', `/v1/admin/posts/${id}/approve`, undefined, projectId),
-    decline: (id: string, reason?: string | null) =>
-      request<Post>('POST', `/v1/admin/posts/${id}/decline`, { reason: reason ?? null }, projectId),
-    updatePost: (id: string, patch: AdminPostPatch) => request<Post>('PATCH', `/v1/admin/posts/${id}`, patch, projectId),
-    deletePost: (id: string) => request<void>('DELETE', `/v1/admin/posts/${id}`, undefined, projectId),
-    merge: (id: string, intoId: string) => request<Post>('POST', `/v1/admin/posts/${id}/merge`, { intoId }, projectId),
-    listComments: (postId: string, cursor?: string | null) =>
-      request<Page<Comment>>('GET', `/v1/admin/posts/${postId}/comments${q({ cursor })}`, undefined, projectId),
-    reply: (postId: string, body: string) => request<Comment>('POST', `/v1/admin/posts/${postId}/comments`, { body }, projectId),
-    deleteComment: (postId: string, commentId: string) =>
-      request<void>('DELETE', `/v1/admin/posts/${postId}/comments/${commentId}`, undefined, projectId),
-    listCategories: () => request<Category[]>('GET', '/v1/admin/categories', undefined, projectId),
-    createCategory: (input: { name: string; color?: string | null }) => request<Category>('POST', '/v1/admin/categories', input, projectId),
-    updateCategory: (id: string, input: { name?: string; color?: string | null; sort?: number }) =>
-      request<Category>('PATCH', `/v1/admin/categories/${id}`, input, projectId),
-    deleteCategory: (id: string) => request<void>('DELETE', `/v1/admin/categories/${id}`, undefined, projectId),
-    listWebhooks: () => request<WebhookConfig[]>('GET', '/v1/admin/webhooks', undefined, projectId),
-    createWebhook: (input: { url: string; events: FeedbackEventType[] }) =>
-      request<WebhookConfig>('POST', '/v1/admin/webhooks', input, projectId),
-    deleteWebhook: (id: string) => request<void>('DELETE', `/v1/admin/webhooks/${id}`, undefined, projectId),
-    getSettings: () => request<ProjectSettings>('GET', '/v1/admin/settings', undefined, projectId),
-    updateSettings: (patch: Partial<ProjectSettings>) => request<ProjectSettings>('PATCH', '/v1/admin/settings', patch, projectId),
-  });
+  const project = (projectId?: string) => {
+    const call = <T>(method: string, path: string, body?: unknown) => request<T>(method, path, body, projectId);
+    return {
+      listPosts: (p: AdminListParams = {}) =>
+        call<Page<Post>>(
+          'GET',
+          `/v1/admin/posts${q({ sort: p.sort, status: p.status, category: p.categoryId, q: p.q, cursor: p.cursor, limit: p.limit, moderation: p.moderation })}`,
+        ),
+      getPost: (id: string) => call<Post>('GET', `/v1/admin/posts/${id}`),
+      listQueue: (cursor?: string | null) => call<Page<Post>>('GET', `/v1/admin/queue${q({ cursor })}`),
+      approve: (id: string) => call<Post>('POST', `/v1/admin/posts/${id}/approve`),
+      decline: (id: string, reason?: string | null) => call<Post>('POST', `/v1/admin/posts/${id}/decline`, { reason: reason ?? null }),
+      updatePost: (id: string, patch: AdminPostPatch) => call<Post>('PATCH', `/v1/admin/posts/${id}`, patch),
+      deletePost: (id: string) => call<void>('DELETE', `/v1/admin/posts/${id}`),
+      merge: (id: string, intoId: string) => call<Post>('POST', `/v1/admin/posts/${id}/merge`, { intoId }),
+      listComments: (postId: string, cursor?: string | null) =>
+        call<Page<Comment>>('GET', `/v1/admin/posts/${postId}/comments${q({ cursor })}`),
+      reply: (postId: string, body: string) => call<Comment>('POST', `/v1/admin/posts/${postId}/comments`, { body }),
+      deleteComment: (postId: string, commentId: string) => call<void>('DELETE', `/v1/admin/posts/${postId}/comments/${commentId}`),
+      listCategories: () => call<Category[]>('GET', '/v1/admin/categories'),
+      createCategory: (input: { name: string; color?: string | null }) => call<Category>('POST', '/v1/admin/categories', input),
+      updateCategory: (id: string, input: { name?: string; color?: string | null; sort?: number }) =>
+        call<Category>('PATCH', `/v1/admin/categories/${id}`, input),
+      deleteCategory: (id: string) => call<void>('DELETE', `/v1/admin/categories/${id}`),
+      listWebhooks: () => call<WebhookConfig[]>('GET', '/v1/admin/webhooks'),
+      createWebhook: (input: { url: string; events: FeedbackEventType[] }) => call<WebhookConfig>('POST', '/v1/admin/webhooks', input),
+      deleteWebhook: (id: string) => call<void>('DELETE', `/v1/admin/webhooks/${id}`),
+      getSettings: () => call<ProjectSettings>('GET', '/v1/admin/settings'),
+      updateSettings: (patch: Partial<ProjectSettings>) => call<ProjectSettings>('PATCH', '/v1/admin/settings', patch),
+    };
+  };
 
   return {
     project,

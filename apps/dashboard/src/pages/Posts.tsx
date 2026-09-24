@@ -1,7 +1,7 @@
 import { formatRelativeTime, locales, POST_STATUSES, type PostStatus } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, keys } from '../api';
 import { href } from '../router';
 import { STATUS_LABELS, StatusBadge, ErrorMessage } from '../ui';
 import { usePostChanged } from './Queue';
@@ -25,8 +25,8 @@ export function PostsPage({ projectId }: { projectId: string }) {
   useEffect(() => setPage(null), [moderation, status, q]);
 
   const params = { moderation, status: status || undefined, q: q || undefined, cursor: page, sort: 'new' as const, limit: 50 };
-  const posts = useQuery({ queryKey: ['p', projectId, 'posts', params], queryFn: () => admin.listPosts(params) });
-  const categories = useQuery({ queryKey: ['p', projectId, 'categories'], queryFn: () => admin.listCategories() });
+  const posts = useQuery({ queryKey: keys.posts(projectId, params), queryFn: () => admin.listPosts(params) });
+  const categories = useQuery({ queryKey: keys.categories(projectId), queryFn: () => admin.listCategories() });
   const update = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Parameters<typeof admin.updatePost>[1] }) => admin.updatePost(id, patch),
     onSuccess: (post) => changed({ post }),

@@ -1,7 +1,7 @@
 import type { ProjectSecrets, ProjectSummary } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, isUnauthorized } from './api';
+import { api, isUnauthorized, keys } from './api';
 import { CategoriesPage } from './pages/Categories';
 import { PostDrawer } from './pages/PostDrawer';
 import { PostsPage } from './pages/Posts';
@@ -14,12 +14,12 @@ import { Modal, SecretField, ErrorMessage } from './ui';
 
 export function App() {
   // A 401 means "show the login"; anything else (offline, 5xx) is worth retrying.
-  const me = useQuery({ queryKey: ['me'], queryFn: api.dashboard.me, retry: (count, error) => !isUnauthorized(error) && count < 2 });
+  const me = useQuery({ queryKey: keys.me, queryFn: api.dashboard.me, retry: (count, error) => !isUnauthorized(error) && count < 2 });
   // Start the projects list alongside the session probe instead of after it (it answers 401
   // too when signed out, which the prefetch simply ignores).
   const client = useQueryClient();
   useEffect(() => {
-    void client.prefetchQuery({ queryKey: ['projects'], queryFn: api.dashboard.listProjects, retry: false });
+    void client.prefetchQuery({ queryKey: keys.projects, queryFn: api.dashboard.listProjects, retry: false });
   }, [client]);
   if (me.isPending) return <div className="center muted">Loading…</div>;
   if (me.isError) {
@@ -39,7 +39,7 @@ function Login() {
   const [password, setPassword] = useState('');
   const login = useMutation({
     mutationFn: () => api.dashboard.login(password),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['me'] }),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.me }),
   });
   return (
     <div className="center">
@@ -76,7 +76,7 @@ const TABS = [
 function Shell() {
   const route = useRoute();
   const client = useQueryClient();
-  const projects = useQuery({ queryKey: ['projects'], queryFn: api.dashboard.listProjects });
+  const projects = useQuery({ queryKey: keys.projects, queryFn: api.dashboard.listProjects });
   const [creating, setCreating] = useState(false);
   const logout = useMutation({
     mutationFn: api.dashboard.logout,
@@ -194,7 +194,7 @@ function CreateProject({ onClose }: { onClose: () => void }) {
     mutationFn: () => api.dashboard.createProject({ name: name.trim() }),
     onSuccess: (p) => {
       setSecrets({ ...p.secrets, id: p.id });
-      void client.invalidateQueries({ queryKey: ['projects'] });
+      void client.invalidateQueries({ queryKey: keys.projects });
     },
   });
 

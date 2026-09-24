@@ -74,8 +74,8 @@ dashboardRoutes.get('/projects', async (c) => {
 
 dashboardRoutes.post('/projects', async (c) => {
   const body = await readJson(c.req.raw);
-  const name = str(body, 'name', { min: 1, max: 80 })!;
-  const slug = slugify(str(body, 'slug', { max: 48, optional: true }) || name);
+  const name = str(body, 'name', { min: 1, max: LIMITS.projectNameMax })!;
+  const slug = slugify(str(body, 'slug', { max: LIMITS.slugMax, optional: true }) || name);
   const taken = await c.env.DB.prepare('SELECT 1 FROM projects WHERE slug = ?').bind(slug).first();
   if (taken) fail(409, 'slug_taken');
   const keys = generateProjectKeys();
@@ -95,8 +95,8 @@ dashboardRoutes.patch('/projects/:id', async (c) => {
   const project = await findProjectById(c.env, c.req.param('id'));
   if (!project) fail(404, 'project_not_found');
   const body = await readJson(c.req.raw);
-  const name = str(body, 'name', { min: 1, max: 80, optional: true }) ?? project.name;
-  const rawSlug = str(body, 'slug', { min: 1, max: 48, optional: true });
+  const name = str(body, 'name', { min: 1, max: LIMITS.projectNameMax, optional: true }) ?? project.name;
+  const rawSlug = str(body, 'slug', { min: 1, max: LIMITS.slugMax, optional: true });
   const slug = rawSlug ? slugify(rawSlug) : project.slug;
   if (slug !== project.slug) {
     const taken = await c.env.DB.prepare('SELECT 1 FROM projects WHERE slug = ?').bind(slug).first();

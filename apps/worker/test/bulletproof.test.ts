@@ -9,7 +9,7 @@ beforeEach(async () => {
 
 const admin = () => ({ Authorization: `Bearer ${h.project.secretKey}` });
 
-describe('bulletproof round 1', () => {
+describe('limits, merges, CSRF, health and edge caching', () => {
   it('serves a roadmap with more posts than D1 allows bound parameters', async () => {
     h.db.prepare("INSERT INTO end_users (id, project_id, external_id, created_at) VALUES ('u', ?, 'u', 0)").run(h.project.id);
     const insert = h.db.prepare(

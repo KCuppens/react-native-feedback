@@ -10,7 +10,7 @@ beforeEach(async () => {
 const plan = (sql: string, ...params: (string | number)[]) =>
   (h.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as { detail: string }[]).map((p) => p.detail).join(' | ');
 
-describe('resourceproof', () => {
+describe('query limits, indexes, sessions and webhook caps', () => {
   it('dedupes status filters so a long repeated list cannot exceed the parameter cap', async () => {
     const status = Array.from({ length: 150 }, () => 'open').join(',');
     const res = await h.request(`/v1/posts?status=${status}`, { headers: await h.as({ user: 'alice' }) });
