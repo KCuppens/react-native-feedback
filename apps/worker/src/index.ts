@@ -40,8 +40,9 @@ app.get('/v1/health', async (c) => {
   let db: 'ok' | 'error' = 'ok';
   try {
     await c.env.DB.prepare('SELECT 1').first();
-  } catch {
+  } catch (error) {
     db = 'error';
+    log('error', 'health check db probe failed', { requestId: c.get('requestId'), error: String(error) });
   }
   const ok = db === 'ok';
   return c.json(

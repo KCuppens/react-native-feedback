@@ -334,11 +334,11 @@ export async function claimAttachments(
 }
 
 /** R2 keys for everything attached to a post or its comments (for cleanup on delete). */
-export async function attachmentKeysForPost(env: Env, postId: string): Promise<string[]> {
-  const { results } = await env.DB.prepare(
-    'SELECT r2_key FROM attachments WHERE post_id = ? OR comment_id IN (SELECT id FROM comments WHERE post_id = ?)',
-  )
-    .bind(postId, postId)
-    .all<{ r2_key: string }>();
-  return results.map((r) => r.r2_key);
+/** Selects `r2_key` for every file on a post, its comments and the duplicates merged into it. */
+export function attachmentKeysForPost(env: Env, postId: string): D1PreparedStatement {
+  return env.DB.prepare(
+    `WITH ids AS (SELECT ?1 AS id UNION SELECT id FROM posts WHERE merged_into_id = ?1)
+     SELECT r2_key FROM attachments
+     WHERE post_id IN (SELECT id FROM ids) OR comment_id IN (SELECT id FROM comments WHERE post_id IN (SELECT id FROM ids))`,
+  ).bind(postId);
 }

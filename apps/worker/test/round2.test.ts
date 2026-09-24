@@ -132,7 +132,7 @@ describe('bulletproof round 2', () => {
       }),
     };
     for (let i = 0; i < 5; i++) await runMaintenance(broken, Date.now() + i * 3_600_000);
-    expect(h.db.prepare("SELECT attempts FROM events WHERE id = 'poison'").get()).toEqual({ attempts: 3 });
+    expect(h.db.prepare("SELECT attempts FROM events WHERE id = 'poison'").get()).toEqual({ attempts: 4 });
     await runMaintenance(h.env, Date.now() + 31 * 86_400_000);
     expect(h.db.prepare("SELECT COUNT(*) AS n FROM events WHERE id = 'poison'").get()).toEqual({ n: 0 });
   });

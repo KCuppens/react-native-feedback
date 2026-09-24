@@ -67,7 +67,7 @@
       }
     },
     {
-      "includes": ["apps/dashboard/src/ui.tsx", "apps/dashboard/src/pages/PostDrawer.tsx"],
+      "includes": ["apps/dashboard/src/ui.tsx", "apps/dashboard/src/pages/PostDrawer.tsx", "packages/react/src/FeedbackBoard.tsx"],
       "linter": {
         "rules": {
           "a11y": {

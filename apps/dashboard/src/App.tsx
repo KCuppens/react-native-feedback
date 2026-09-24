@@ -193,18 +193,21 @@ function CreateProject({ onClose }: { onClose: () => void }) {
   });
 
   if (secrets) {
+    const done = () => {
+      navigate(href(secrets.id, 'settings'));
+      onClose();
+    };
+    // Its own key so the dialog remounts and focus moves into it (the Create button is gone),
+    // and not dismissible: a stray click must not discard the only copy of the admin key.
     return (
-      <Modal
-        title="Project created"
-        onClose={() => {
-          navigate(href(secrets.id, 'settings'));
-          onClose();
-        }}
-      >
-        <p>Copy the admin API key now: it is stored hashed and won't be shown again.</p>
+      <Modal key="created" title="Project created" onClose={done} dismissible={false}>
+        <p role="alert">Project created. Copy the admin API key now: it is stored hashed and won't be shown again.</p>
         <SecretField label="Public key (in your app)" value={secrets.publicKey} revealed />
         <SecretField label="Signing secret (your server only)" value={secrets.signingSecret} />
         <SecretField label="Admin API key (shown once)" value={secrets.secretKey ?? ''} />
+        <button type="button" className="primary" onClick={done}>
+          I've copied the key
+        </button>
       </Modal>
     );
   }

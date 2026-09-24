@@ -1,6 +1,6 @@
 import type { Post } from '@kobecuppens/feedback-core';
 import { useRoadmap } from '@kobecuppens/feedback-core/react';
-import { CategoryPill, EmptyState, ErrorState, Loading, StatusPill } from '../components';
+import { CategoryPill, EmptyState, ErrorState, Loading, StatusPill, srOnly } from '../components';
 import { useUI } from '../ui';
 
 export function FeedbackRoadmap({ onOpenPost }: { onOpenPost: (post: Post) => void }) {
@@ -25,7 +25,7 @@ export function FeedbackRoadmap({ onOpenPost }: { onOpenPost: (post: Post) => vo
                 <span {...slot('cardMeta')}>
                   <span {...slot('cardMetaText')}>
                     <span aria-hidden="true">▲ {post.score}</span>
-                    <span className="fb-srOnly">{strings.post.votes(post.score)}</span>
+                    <span style={srOnly}>{strings.post.votes(post.score)}</span>
                   </span>
                   {post.category && <CategoryPill name={post.category.name} color={post.category.color} />}
                 </span>

@@ -1,9 +1,10 @@
 import { useFeedbackContext } from '@kobecuppens/feedback-core/react';
 import { Component, type ReactNode } from 'react';
-import { ErrorState } from './components';
+import { Pressable, Text, View } from 'react-native';
+import { useUI } from './ui';
 
 interface Props {
-  message: string;
+  fallback: (retry: () => void) => ReactNode;
   onError: (error: unknown) => void;
   children: ReactNode;
 }
@@ -25,10 +26,7 @@ class Boundary extends Component<Props, { error: unknown }> {
   }
 
   render() {
-    // Render crashes are usually TypeErrors too: never present them as a network problem.
-    if (this.state.error) {
-      return <ErrorState error={this.state.error} message={this.props.message} onRetry={() => this.setState({ error: null })} />;
-    }
+    if (this.state.error) return this.props.fallback(() => this.setState({ error: null }));
     return this.props.children;
   }
 }
@@ -38,9 +36,20 @@ class Boundary extends Component<Props, { error: unknown }> {
  * component override) from unmounting the host app's screen. Reports via onEvent.
  */
 export function FeedbackErrorBoundary({ children }: { children: ReactNode }) {
-  const { onEvent, strings } = useFeedbackContext();
+  const { onEvent } = useFeedbackContext();
+  const { styles, strings } = useUI();
+  // Plain elements only: the crash may come from an EmptyState or Button override.
+  // Render crashes are usually TypeErrors too, so never present them as a network problem.
+  const fallback = (retry: () => void) => (
+    <View style={styles.empty} accessibilityRole="alert">
+      <Text style={styles.emptyText}>{strings.errors.generic}</Text>
+      <Pressable accessibilityRole="button" onPress={retry} style={styles.buttonSecondary}>
+        <Text style={styles.buttonSecondaryText}>{strings.errors.retry}</Text>
+      </Pressable>
+    </View>
+  );
   return (
-    <Boundary message={strings.errors.generic} onError={(error) => onEvent({ type: 'error', error })}>
+    <Boundary fallback={fallback} onError={(error) => onEvent({ type: 'error', error })}>
       {children}
     </Boundary>
   );

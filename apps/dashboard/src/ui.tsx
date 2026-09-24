@@ -38,7 +38,8 @@ export function useDialogFocus<T extends HTMLElement>(onClose: () => void) {
     const dialog = ref.current;
     if (dialog && !dialog.contains(document.activeElement)) dialog.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') return close.current();
+      // An inner control that handled Escape itself (e.g. an inline confirmation) wins.
+      if (e.key === 'Escape') return e.defaultPrevented ? undefined : close.current();
       if (e.key !== 'Tab' || !dialog) return;
       const items = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE));
       const first = items[0];
@@ -65,16 +66,32 @@ export function useDialogFocus<T extends HTMLElement>(onClose: () => void) {
   return ref;
 }
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const ref = useDialogFocus<HTMLDivElement>(onClose);
+/**
+ * `dismissible={false}` is for content that must not be lost to a stray click or Escape
+ * (a key shown once): only an explicit button inside the dialog closes it.
+ */
+export function Modal({
+  title,
+  onClose,
+  children,
+  dismissible = true,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  dismissible?: boolean;
+}) {
+  const ref = useDialogFocus<HTMLDivElement>(dismissible ? onClose : () => {});
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay" onMouseDown={(e) => dismissible && e.target === e.currentTarget && onClose()}>
       <div ref={ref} tabIndex={-1} className="card modal" role="dialog" aria-modal="true" aria-label={title}>
         <div className="row between">
           <h2>{title}</h2>
-          <button type="button" className="ghost" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+          {dismissible && (
+            <button type="button" className="ghost" onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          )}
         </div>
         {children}
       </div>
@@ -158,7 +175,18 @@ export function ConfirmButton({
     );
   }
   return (
-    <span className="row" role="group" aria-label={question}>
+    <span
+      className="row"
+      role="group"
+      aria-label={question}
+      onKeyDown={(e) => {
+        // Escape answers "no" here instead of closing the surrounding drawer or dialog.
+        if (e.key !== 'Escape') return;
+        e.preventDefault();
+        e.stopPropagation();
+        setAsking(false);
+      }}
+    >
       <span className="small">{question}</span>
       <button
         type="button"

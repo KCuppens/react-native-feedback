@@ -1,6 +1,6 @@
 import { formatRelativeTime, locales, type Post } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ErrorMessage } from '../ui';
 import { api, latestError } from '../api';
 import { href } from '../router';
@@ -44,6 +44,13 @@ function QueueCard({ projectId, post }: { projectId: string; post: Post }) {
   const approve = useMutation({ mutationFn: () => admin.approve(post.id), onSuccess: invalidate });
   const decline = useMutation({ mutationFn: () => admin.decline(post.id, reason.trim() || null), onSuccess: invalidate });
   const error = latestError(approve, decline);
+  // Cancel replaces itself with the Decline… button: send focus back there, not to <body>.
+  const declineButton = useRef<HTMLButtonElement>(null);
+  const wasDeclining = useRef(false);
+  useEffect(() => {
+    if (wasDeclining.current && !declining) declineButton.current?.focus();
+    wasDeclining.current = declining;
+  }, [declining]);
 
   return (
     <article className="card">
@@ -87,7 +94,7 @@ function QueueCard({ projectId, post }: { projectId: string; post: Post }) {
           <button type="button" className="primary" onClick={() => approve.mutate()} disabled={approve.isPending}>
             Approve
           </button>
-          <button type="button" onClick={() => setDeclining(true)}>
+          <button ref={declineButton} type="button" onClick={() => setDeclining(true)}>
             Decline…
           </button>
         </div>

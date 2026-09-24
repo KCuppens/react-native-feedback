@@ -31,7 +31,7 @@ class Statement {
   exec() {
     const stmt = this.db.prepare(this.sql);
     // Like D1, batch results carry rows for queries and RETURNING statements.
-    if (/^\s*SELECT\b/i.test(this.sql) || /\bRETURNING\b/i.test(this.sql)) {
+    if (/^\s*(SELECT|WITH)\b/i.test(this.sql) || /\bRETURNING\b/i.test(this.sql)) {
       const rows = stmt.all(...this.params);
       return { results: rows, success: true, meta: { changes: rows.length } };
     }

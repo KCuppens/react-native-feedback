@@ -127,7 +127,7 @@ CREATE TABLE events (
   attempts INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX events_project ON events (project_id, created_at DESC);
-CREATE INDEX events_unprocessed ON events (created_at) WHERE processed_at IS NULL AND attempts < 3;
+CREATE INDEX events_unprocessed ON events (created_at) WHERE processed_at IS NULL AND attempts <= 3;
 
 -- Fixed-window counters for limits that cannot key on a user (logins, anonymous devices by IP).
 CREATE TABLE rate_limits (

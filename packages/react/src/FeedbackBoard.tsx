@@ -148,16 +148,6 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
   const push = useCallback((r: Route) => setStack((s) => [...s, r]), []);
   const pop = useCallback(() => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)), []);
 
-  // Escape goes back, like the hardware back button on Android.
-  useEffect(() => {
-    if (stack.length <= 1) return;
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) pop();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [stack.length, pop]);
-
   const tabs = useMemo(() => {
     const list: BoardTab[] = ['board'];
     if (features?.roadmap) list.push('roadmap');
@@ -191,6 +181,15 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
   };
   const open = (post: Post) => navigate({ name: 'post', id: post.id, initial: post });
 
+  // Escape goes back, like the hardware back button on Android. Scoped to the pushed
+  // screen so an Escape meant for the host app (its own modal or menu) never pops the board.
+  const onScreenKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    e.preventDefault();
+    pop();
+  };
+
   // Tabs pattern: arrow keys move between tabs, only the active one is in the tab order.
   const ids = useId();
   const onTabKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -209,7 +208,12 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
   return (
     <div style={{ display: 'contents' }}>
       {covered && (
-        <div ref={screen} tabIndex={-1} style={{ display: 'flex', flexDirection: 'column', flex: 1, outline: 'none' }}>
+        <div
+          ref={screen}
+          tabIndex={-1}
+          style={{ display: 'flex', flexDirection: 'column', flex: 1, outline: 'none' }}
+          onKeyDown={onScreenKey}
+        >
           {route.name === 'post' && <FeedbackDetail key={route.id} postId={route.id} initialPost={route.initial} onBack={pop} />}
           {route.name === 'submit' && (
             <FeedbackSubmit onCancel={pop} onDone={(post) => setStack([{ name: 'tabs' }, { name: 'post', id: post.id, initial: post }])} />

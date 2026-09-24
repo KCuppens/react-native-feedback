@@ -1,5 +1,5 @@
-import { formatRelativeTime, locales, POST_STATUSES, type PostStatus } from '@kobecuppens/feedback-core';
-import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
+import { FeedbackApiError, formatRelativeTime, locales, POST_STATUSES, type PostStatus } from '@kobecuppens/feedback-core';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, latestError } from '../api';
 import { ConfirmButton, STATUS_LABELS, StatusBadge, useDialogFocus, ErrorMessage } from '../ui';
@@ -8,6 +8,7 @@ import { useProjectInvalidate } from './Queue';
 export function PostDrawer({ projectId, postId, onClose }: { projectId: string; postId: string; onClose: () => void }) {
   const admin = api.project(projectId);
   const invalidate = useProjectInvalidate(projectId);
+  const client = useQueryClient();
   const post = useQuery({ queryKey: ['p', projectId, 'post', postId], queryFn: () => admin.getPost(postId) });
   const comments = useInfiniteQuery({
     queryKey: ['p', projectId, 'comments', postId],
@@ -53,6 +54,13 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
     onSuccess: () => {
       invalidate();
       onClose();
+    },
+    // Lost a race with another merge: reload so the drawer and the candidates reflect it.
+    onError: (e) => {
+      if (!(e instanceof FeedbackApiError && e.status === 409)) return;
+      invalidate();
+      void client.invalidateQueries({ queryKey: ['merge-candidates', projectId] });
+      setMergeTarget('');
     },
   });
   const remove = useMutation({
@@ -179,7 +187,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
 
               <h3>Comments</h3>
               {comments.isPending && <p className="muted">Loading comments…</p>}
-              <ErrorMessage error={comments.error} />
+              <ErrorMessage error={comments.error} retry={() => comments.refetch()} />
               {comments.isSuccess && commentList.length === 0 && <p className="muted">No comments yet.</p>}
               <ul className="comments">
                 {commentList.map((c) => (

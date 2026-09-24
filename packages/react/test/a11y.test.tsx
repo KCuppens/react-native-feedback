@@ -92,4 +92,36 @@ describe('accessibility and resilience', () => {
     fireEvent.click(screen.getByRole('button', { name: /With image/ }));
     expect(await screen.findByRole('link', { name: 'Open attachment 1' })).toBeTruthy();
   });
+
+  it('keeps the fallback working when the Button or EmptyState override is what crashed', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const broken = (): never => {
+      throw new Error('broken override');
+    };
+    // The card crashes, and the old fallback went through EmptyState, which crashes too.
+    render(<FeedbackBoard adapter={seed()} locale="en" components={{ PostCard: broken, EmptyState: broken, Button: broken }} />);
+    expect((await screen.findByRole('alert')).textContent).toContain('Something went wrong.');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+  });
+
+  it('reads roadmap vote counts but hides them visually when unstyled', async () => {
+    const adapter = createMemoryAdapter({ posts: [{ id: 'p1', title: 'Planned', status: 'planned', score: 3 }] });
+    render(<FeedbackBoard adapter={adapter} locale="en" initialTab="roadmap" unstyled />);
+    expect((await screen.findByText('3 votes')).style.position).toBe('absolute');
+  });
+
+  it('goes back on Escape inside the board, but ignores Escape pressed in the host app', async () => {
+    render(
+      <>
+        <button type="button">Host button</button>
+        <FeedbackBoard adapter={seed()} locale="en" />
+      </>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Dark mode' }));
+    const heading = await screen.findByRole('heading', { level: 2, name: 'Dark mode' });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Host button' }), { key: 'Escape' });
+    expect(screen.queryByRole('heading', { level: 2, name: 'Dark mode' })).toBe(heading);
+    fireEvent.keyDown(heading, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('heading', { level: 2, name: 'Dark mode' })).toBeNull());
+  });
 });

@@ -1,9 +1,9 @@
 import { useFeedbackContext } from '@kobecuppens/feedback-core/react';
 import { Component, type ReactNode } from 'react';
-import { ErrorState } from './components';
+import { useUI } from './ui';
 
 interface Props {
-  message: string;
+  fallback: (retry: () => void) => ReactNode;
   onError: (error: unknown) => void;
   children: ReactNode;
 }
@@ -25,10 +25,7 @@ class Boundary extends Component<Props, { error: unknown }> {
   }
 
   render() {
-    // Render crashes are usually TypeErrors too: never present them as a network problem.
-    if (this.state.error) {
-      return <ErrorState error={this.state.error} message={this.props.message} onRetry={() => this.setState({ error: null })} />;
-    }
+    if (this.state.error) return this.props.fallback(() => this.setState({ error: null }));
     return this.props.children;
   }
 }
@@ -38,9 +35,20 @@ class Boundary extends Component<Props, { error: unknown }> {
  * component override) from unmounting the host app's screen. Reports via onEvent.
  */
 export function FeedbackErrorBoundary({ children }: { children: ReactNode }) {
-  const { onEvent, strings } = useFeedbackContext();
+  const { onEvent } = useFeedbackContext();
+  const { slot, strings } = useUI();
+  // Plain elements only: the crash may come from an EmptyState or Button override.
+  // Render crashes are usually TypeErrors too, so never present them as a network problem.
+  const fallback = (retry: () => void) => (
+    <div {...slot('empty')} role="alert">
+      <p style={{ margin: 0 }}>{strings.errors.generic}</p>
+      <button type="button" {...slot('buttonSecondary')} onClick={retry}>
+        {strings.errors.retry}
+      </button>
+    </div>
+  );
   return (
-    <Boundary message={strings.errors.generic} onError={(error) => onEvent({ type: 'error', error })}>
+    <Boundary fallback={fallback} onError={(error) => onEvent({ type: 'error', error })}>
       {children}
     </Boundary>
   );

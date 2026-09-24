@@ -152,7 +152,7 @@ Set `DEFAULT_API_URL` in `packages/core/src/hosted.ts` to your deployed URL, so 
 
 ## Develop
 
-Requires Node 22.13+ (see `.nvmrc`).
+Requires Node 22.13+ (the worker tests use `node:sqlite`); `.nvmrc` pins the version CI uses (24).
 
 ```bash
 npm install

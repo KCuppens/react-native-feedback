@@ -47,6 +47,9 @@ async function loadPost(c: Context<AppEnv>, id: string): Promise<PostRecord> {
 
 const reload = async (c: Context<AppEnv>, id: string) => publicPost(await loadPost(c, id));
 
+/** Batched right after a guarded UPDATE: the event is only recorded if that statement changed a row. */
+const PREVIOUS_CHANGED = { sql: 'changes() > 0', params: [] };
+
 /** An outbox row for an admin action; batch its statement with the change, then dispatch. */
 async function adminEvent(
   c: Context<AppEnv>,
@@ -102,10 +105,7 @@ adminRoutes.post('/posts/:id/approve', async (c) => {
   if (post.moderation === 'approved') return c.json(publicPost(post));
   const ts = now();
   // Guarded so two concurrent approvals record (and email) the change once.
-  const event = await adminEvent(c, 'post.approved', post.id, undefined, {
-    sql: "EXISTS (SELECT 1 FROM posts WHERE id = ? AND moderation = 'approved' AND moderated_at = ?)",
-    params: [post.id, ts],
-  });
+  const event = await adminEvent(c, 'post.approved', post.id, undefined, PREVIOUS_CHANGED);
   const [approved] = await c.env.DB.batch([
     c.env.DB.prepare(
       "UPDATE posts SET moderation = 'approved', decline_reason = NULL, moderated_at = ?, updated_at = ? WHERE id = ? AND moderation != 'approved'",
@@ -121,17 +121,21 @@ adminRoutes.post('/posts/:id/decline', async (c) => {
   const body = await readJson(c.req.raw);
   const reason = str(body, 'reason', { max: LIMITS.declineReasonMax, optional: true, nullable: true }) || null;
   const ts = now();
-  const event = await adminEvent(c, 'post.declined', post.id, { reason });
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE posts SET moderation = 'declined', decline_reason = ?, moderated_at = ?, updated_at = ? WHERE id = ?").bind(
+  // Editing the reason of an already declined post is silent; only the transition to
+  // declined records an event, so duplicate declines email the author once.
+  const event = await adminEvent(c, 'post.declined', post.id, { reason }, PREVIOUS_CHANGED);
+  const [, declined] = await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE posts SET decline_reason = ?, updated_at = ? WHERE id = ? AND moderation = 'declined'").bind(
       reason,
-      ts,
       ts,
       post.id,
     ),
+    c.env.DB.prepare(
+      "UPDATE posts SET moderation = 'declined', decline_reason = ?, moderated_at = ?, updated_at = ? WHERE id = ? AND moderation != 'declined'",
+    ).bind(reason, ts, ts, post.id),
     event.statement,
   ]);
-  await dispatch(c, event);
+  if (declined?.meta.changes) await dispatch(c, event);
   return c.json(await reload(c, post.id));
 });
 
@@ -167,15 +171,7 @@ adminRoutes.patch('/posts/:id', async (c) => {
     params.push(text);
   }
   // The status change is its own guarded statement, so concurrent identical changes emit once.
-  const event = newStatus
-    ? await adminEvent(
-        c,
-        'post.status_changed',
-        post.id,
-        { previousStatus: post.status },
-        { sql: 'EXISTS (SELECT 1 FROM posts WHERE id = ? AND status = ? AND status_changed_at = ?)', params: [post.id, newStatus, ts] },
-      )
-    : null;
+  const event = newStatus ? await adminEvent(c, 'post.status_changed', post.id, { previousStatus: post.status }, PREVIOUS_CHANGED) : null;
   const statements = [
     ...(sets.length
       ? [c.env.DB.prepare(`UPDATE posts SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).bind(...params, ts, post.id)]
@@ -204,13 +200,18 @@ adminRoutes.patch('/posts/:id', async (c) => {
 adminRoutes.delete('/posts/:id', async (c) => {
   const post = await loadPost(c, c.req.param('id'));
   // Duplicates merged into this post go with it: their votes already live here, and
-  // ON DELETE SET NULL would otherwise put them back on the board.
+  // ON DELETE SET NULL would otherwise put them back on the board. Both the file keys and
+  // the duplicates are resolved inside the batch, so a merge landing meanwhile is included.
   const { results: merged } = await c.env.DB.prepare('SELECT id FROM posts WHERE merged_into_id = ?').bind(post.id).all<{ id: string }>();
-  const ids = [post.id, ...merged.map((m) => m.id)];
-  const keys = (await Promise.all(ids.map((id) => attachmentKeysForPost(c.env, id)))).flat();
-  const event = await adminEvent(c, 'post.deleted', post.id, { snapshot: publicPost(post), mergedIds: ids.slice(1) });
-  await c.env.DB.batch([...ids.map((id) => c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(id)), event.statement]);
+  const event = await adminEvent(c, 'post.deleted', post.id, { snapshot: publicPost(post), mergedIds: merged.map((m) => m.id) });
+  const [files] = await c.env.DB.batch([
+    attachmentKeysForPost(c.env, post.id),
+    c.env.DB.prepare('DELETE FROM posts WHERE merged_into_id = ?').bind(post.id),
+    c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(post.id),
+    event.statement,
+  ]);
   await dispatch(c, event);
+  const keys = ((files?.results ?? []) as { r2_key: string }[]).map((r) => r.r2_key);
   deleteFilesInBackground(c, keys, `post ${post.id}`);
   return c.body(null, 204);
 });
@@ -224,19 +225,18 @@ adminRoutes.post('/posts/:id/merge', async (c) => {
   if (target.mergedIntoId) fail(400, 'invalid_input', 'target is itself merged');
   const ts = now();
   // One transaction. The claim re-checks both sides in SQL (two concurrent merges A→B and
-  // B→A would otherwise both pass the checks above and form a cycle), and every later
-  // statement only acts if this request's claim took effect, so a failure part-way leaves
-  // nothing half-merged and a lost race changes nothing.
-  const claimedByUs = {
-    sql: 'EXISTS (SELECT 1 FROM posts WHERE id = ? AND merged_into_id = ? AND updated_at = ?)',
-    params: [source.id, target.id, ts],
-  };
-  const event = await adminEvent(c, 'post.merged', source.id, { intoId: target.id }, claimedByUs);
+  // B→A would otherwise both pass the checks above and form a cycle; a deleted target fails
+  // it too). The event row is only written if the claim changed a row, and every later
+  // statement requires that row, so a failure part-way leaves nothing half-merged and a lost
+  // race changes nothing.
+  const event = await adminEvent(c, 'post.merged', source.id, { intoId: target.id }, PREVIOUS_CHANGED);
+  const claimedByUs = { sql: 'EXISTS (SELECT 1 FROM events WHERE id = ?)', params: [event.id] };
   const [claim] = await c.env.DB.batch([
     c.env.DB.prepare(
       `UPDATE posts SET merged_into_id = ?1, status = 'closed', status_changed_at = ?2, updated_at = ?2
-       WHERE id = ?3 AND merged_into_id IS NULL AND (SELECT merged_into_id FROM posts WHERE id = ?1) IS NULL`,
+       WHERE id = ?3 AND merged_into_id IS NULL AND EXISTS (SELECT 1 FROM posts WHERE id = ?1 AND merged_into_id IS NULL)`,
     ).bind(target.id, ts, source.id),
+    event.statement,
     // Carry supporters over; users who already voted on the target keep their vote.
     c.env.DB.prepare(
       `INSERT OR IGNORE INTO votes (post_id, user_id, value, created_at)
@@ -248,7 +248,6 @@ adminRoutes.post('/posts/:id/merge', async (c) => {
       source.id,
       ...claimedByUs.params,
     ),
-    event.statement,
   ]);
   if (!claim?.meta.changes) fail(409, 'merge_conflict', 'One of these posts was merged in the meantime.');
   await dispatch(c, event);

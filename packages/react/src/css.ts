@@ -97,5 +97,5 @@ export const feedbackCss = `
 :where(.fb-updateTitle) { font-weight: var(--fb-font-weight-medium); }
 :where(.fb-adminBar) { display: flex; flex-direction: column; gap: var(--fb-space-sm); padding: var(--fb-space-md); border-radius: var(--fb-radius-md); background: var(--fb-color-surface-alt); }
 :where(.fb-adminRow) { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: var(--fb-space-sm); }
-:where(.fb-srOnly) { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+:where(.fb-card) > :where(.fb-input) { position: relative; z-index: 1; }
 `;

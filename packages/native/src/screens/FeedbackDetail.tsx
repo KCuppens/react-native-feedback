@@ -10,6 +10,7 @@ import {
 } from '@kobecuppens/feedback-core/react';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  AccessibilityInfo,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -206,6 +207,10 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
   const [reason, setReason] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const failed = [m.approve, m.decline, m.update, m.remove].find((mutation) => mutation.isError);
+  // The question replaces the button that asked it, so tell screen reader users it is waiting.
+  useEffect(() => {
+    if (confirmDelete) AccessibilityInfo.announceForAccessibility(strings.admin.confirmDelete);
+  }, [confirmDelete, strings.admin.confirmDelete]);
 
   return (
     <View style={styles.adminBar}>
@@ -258,7 +263,9 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
       )}
       {confirmDelete ? (
         <View style={{ gap: theme.spacing.sm }}>
-          <Text style={styles.errorText}>{strings.admin.confirmDelete}</Text>
+          <Text style={styles.errorText} accessibilityRole="alert">
+            {strings.admin.confirmDelete}
+          </Text>
           <View style={styles.adminRow}>
             <Button
               label={strings.admin.delete}

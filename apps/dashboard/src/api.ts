@@ -24,5 +24,10 @@ export const isUnauthorized = (e: unknown) => e instanceof FeedbackApiError && e
 
 export function errorText(e: unknown): string {
   if (e instanceof FeedbackApiError) return e.message || e.code;
-  return e instanceof Error ? e.message : 'Something went wrong';
+  // A dropped connection (TypeError) or the client's timeout (AbortError) would otherwise
+  // surface the browser's own wording, e.g. "signal is aborted without reason".
+  if (e instanceof TypeError || (e instanceof Error && e.name === 'AbortError')) {
+    return 'Could not reach the server. Check your connection and retry.';
+  }
+  return 'Something went wrong';
 }

@@ -45,7 +45,7 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
     <div className="stack narrow">
       <p className="muted">Categories let users tag submissions (Feature, Bug, Improvement…) and filter the board.</p>
       {categories.isPending && <p className="muted">Loading…</p>}
-      <ErrorMessage error={categories.error} />
+      <ErrorMessage error={categories.error} retry={() => categories.refetch()} />
       {categories.isSuccess && list.length === 0 && <p className="muted">No categories yet. Add the first one below.</p>}
       <ul className="list">
         {list.map((c, i) => (
@@ -89,25 +89,28 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
           </li>
         ))}
       </ul>
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (name.trim()) create.mutate();
-        }}
-      >
-        <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Colour" />
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="New category"
-          aria-label="New category name"
-          maxLength={40}
-        />
-        <button type="submit" className="primary" disabled={!name.trim() || create.isPending}>
-          Add
-        </button>
-      </form>
+      {/* Only once the list loads, so an admin cannot re-create categories they cannot see. */}
+      {categories.isSuccess && (
+        <form
+          className="row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim()) create.mutate();
+          }}
+        >
+          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Colour" />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="New category"
+            aria-label="New category name"
+            maxLength={40}
+          />
+          <button type="submit" className="primary" disabled={!name.trim() || create.isPending}>
+            Add
+          </button>
+        </form>
+      )}
       <ErrorMessage error={error} />
     </div>
   );

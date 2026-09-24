@@ -8,7 +8,7 @@ import {
   usePost,
   useVote,
 } from '@kobecuppens/feedback-core/react';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Avatar, Button, CategoryPill, Chip, ErrorState, Header, InlineError, Loading, PostStatusPill, VoteControl } from '../components';
 import { useUI } from '../ui';
 
@@ -165,18 +165,50 @@ function Composer({ postId }: { postId: string }) {
   );
 }
 
+/**
+ * An inline confirmation replaces the button that opened it, which would drop focus to
+ * <body>. Move focus to the confirmation's last button (Cancel) when it opens, and to the
+ * last button of the trigger row when it closes. Rows are looked up by ref because Button
+ * can be a host override that does not forward refs.
+ */
+function useSwapFocus(open: boolean) {
+  const openRow = useRef<HTMLDivElement>(null);
+  const closedRow = useRef<HTMLDivElement>(null);
+  const fallback = useRef<HTMLElement>(null);
+  const was = useRef(open);
+  useEffect(() => {
+    if (was.current === open) return;
+    was.current = open;
+    const row = open ? openRow.current : closedRow.current;
+    if (open && !row) return; // the opened content focuses itself (autoFocus)
+    const buttons = row?.querySelectorAll<HTMLElement>('button');
+    (buttons?.[buttons.length - 1] ?? fallback.current)?.focus();
+  }, [open]);
+  return { openRow, closedRow, fallback };
+}
+
 function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void }) {
   const { slot, strings } = useUI();
   const m = useModeration();
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const declineFocus = useSwapFocus(declining);
+  const deleteFocus = useSwapFocus(confirmDelete);
   const failed = [m.approve, m.decline, m.update, m.remove].find((mutation) => mutation.isError);
   return (
-    <section {...slot('adminBar')} aria-label={strings.admin.queue}>
+    <section
+      {...slot('adminBar')}
+      aria-label={strings.admin.queue}
+      ref={(el) => {
+        declineFocus.fallback.current = el;
+        deleteFocus.fallback.current = el;
+      }}
+      tabIndex={-1}
+    >
       <InlineError error={failed?.error} />
       {post.moderation !== 'approved' && !declining && (
-        <div {...slot('adminRow')}>
+        <div {...slot('adminRow')} ref={declineFocus.closedRow}>
           <Button label={strings.admin.approve} onClick={() => m.approve.mutate(post.id)} loading={m.approve.isPending} />
           {post.moderation === 'pending' && <Button label={strings.admin.decline} variant="secondary" onClick={() => setDeclining(true)} />}
         </div>
@@ -220,8 +252,10 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
       )}
       {confirmDelete ? (
         <>
-          <p {...slot('errorText')}>{strings.admin.confirmDelete}</p>
-          <div {...slot('adminRow')}>
+          <p {...slot('errorText')} role="alert">
+            {strings.admin.confirmDelete}
+          </p>
+          <div {...slot('adminRow')} ref={deleteFocus.openRow}>
             <Button
               label={strings.admin.delete}
               variant="danger"
@@ -232,7 +266,7 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
           </div>
         </>
       ) : (
-        <div {...slot('adminRow')}>
+        <div {...slot('adminRow')} ref={deleteFocus.closedRow}>
           <Button label={strings.admin.delete} variant="secondary" onClick={() => setConfirmDelete(true)} />
         </div>
       )}
