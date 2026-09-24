@@ -187,7 +187,11 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
   const draftDirty = useRef(false);
   const onScreenKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Escape' || e.defaultPrevented) return;
-    if (route.name === 'submit' && draftDirty.current) return;
+    if (route.name === 'submit' && draftDirty.current) {
+      // Handled: the draft stays, and a host dialog around the board must not close either.
+      e.preventDefault();
+      return;
+    }
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     e.preventDefault();
     pop();

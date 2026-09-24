@@ -7,7 +7,7 @@ import { useUI } from '../ui';
 export interface FeedbackSubmitProps {
   onDone?: (post: Post) => void;
   onCancel?: () => void;
-  /** Called when the form gains or loses unsaved input, e.g. to guard navigating away. */
+  /** Called when the form gains or loses unsaved input, e.g. to guard navigating away. Reports `false` on unmount. */
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -30,7 +30,17 @@ export function FeedbackSubmit({ onDone, onCancel, onDirtyChange }: FeedbackSubm
   const dirty = !created && !!(title.trim() || body.trim() || categoryId || attachments.length > 0);
   const onDirty = useRef(onDirtyChange);
   onDirty.current = onDirtyChange;
-  useEffect(() => onDirty.current?.(dirty), [dirty]);
+  // Block body: the effect must not return whatever a host's callback returns.
+  useEffect(() => {
+    onDirty.current?.(dirty);
+  }, [dirty]);
+  // Leaving the form discards the draft, so report clean: a host guard must not stay armed.
+  useEffect(
+    () => () => {
+      onDirty.current?.(false);
+    },
+    [],
+  );
   const titleMin = limits?.titleMin ?? 3;
 
   // Free preview blobs on unmount (removals free their own).

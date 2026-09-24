@@ -152,6 +152,8 @@ describe('accessibility and resilience', () => {
     // Also with focus outside the form (the screen heading).
     fireEvent.keyDown(screen.getByRole('heading', { level: 2 }), { key: 'Escape' });
     expect(screen.getByLabelText('Title')).toBe(title);
+    // Marked as handled, so a host dialog around the board does not close and lose it either.
+    expect(fireEvent.keyDown(title, { key: 'Escape' })).toBe(false);
   });
 
   it('keeps focus on a busy button so a failed request does not lose the user', async () => {
