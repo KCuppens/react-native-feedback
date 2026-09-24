@@ -52,6 +52,8 @@ export interface FeedbackStrings {
     successPublished: string;
     cancel: string;
     done: string;
+    /** Announced when Escape does not leave a form that has unsaved input. */
+    draftKept: string;
     tooLong: (max: number) => string;
     required: string;
   };
@@ -157,6 +159,7 @@ export const en: FeedbackStrings = {
     successPublished: 'Thanks! Your post is live.',
     cancel: 'Cancel',
     done: 'Done',
+    draftKept: 'Draft kept. Use Back to discard it.',
     tooLong: (max) => `Keep it under ${max} characters.`,
     required: 'Required',
   },

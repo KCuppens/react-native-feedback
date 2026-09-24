@@ -19,6 +19,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { srOnly } from './components';
 import { feedbackCss } from './css';
 import { FeedbackErrorBoundary } from './ErrorBoundary';
 import {
@@ -118,18 +119,30 @@ export type BoardTab = 'board' | 'roadmap' | 'updates' | 'admin';
 export type FeedbackBoardProps = Omit<FeedbackProviderProps, 'children'> & {
   initialTab?: BoardTab;
   headerAccessory?: ReactNode;
+  /**
+   * An unsaved submit draft appeared or cleared (false when the form closes). Use it to
+   * stop a host dialog from closing on Escape or an outside click while a draft exists.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
   className?: string;
   style?: CSSProperties;
 };
 
 type Route = { name: 'tabs' } | { name: 'post'; id: string; initial?: Post } | { name: 'submit' };
 
-export function FeedbackBoard({ initialTab = 'board', headerAccessory, className, style, ...providerProps }: FeedbackBoardProps) {
+export function FeedbackBoard({
+  initialTab = 'board',
+  headerAccessory,
+  onDirtyChange,
+  className,
+  style,
+  ...providerProps
+}: FeedbackBoardProps) {
   const nested = useHasFeedbackProvider();
   const board = (
     <FeedbackRoot className={className} style={style}>
       <FeedbackErrorBoundary>
-        <BoardNavigator initialTab={initialTab} headerAccessory={headerAccessory} />
+        <BoardNavigator initialTab={initialTab} headerAccessory={headerAccessory} onDirtyChange={onDirtyChange} />
       </FeedbackErrorBoundary>
     </FeedbackRoot>
   );
@@ -139,7 +152,15 @@ export function FeedbackBoard({ initialTab = 'board', headerAccessory, className
   return <FeedbackProvider {...providerProps}>{board}</FeedbackProvider>;
 }
 
-function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab; headerAccessory?: ReactNode }) {
+function BoardNavigator({
+  initialTab,
+  headerAccessory,
+  onDirtyChange,
+}: {
+  initialTab: BoardTab;
+  headerAccessory?: ReactNode;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const { slot, strings } = useUI();
   const features = useFeatures();
   const [tab, setTab] = useState<BoardTab>(initialTab);
@@ -185,11 +206,18 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
   // screen so an Escape meant for the host app (its own modal or menu) never pops the board.
   // A started submit draft only lives in FeedbackSubmit's state: never discard it on Escape.
   const draftDirty = useRef(false);
+  const reportDirty = useRef(onDirtyChange);
+  reportDirty.current = onDirtyChange;
+  const [draftNotice, setDraftNotice] = useState('');
   const onScreenKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Escape' || e.defaultPrevented) return;
     if (route.name === 'submit' && draftDirty.current) {
-      // Handled: the draft stays, and a host dialog around the board must not close either.
+      // Handled: the draft stays. This also stops bubble-phase host dialogs that respect
+      // defaultPrevented or React propagation; capture-phase ones (e.g. Radix) need
+      // onDirtyChange to block their own Escape.
       e.preventDefault();
+      e.stopPropagation();
+      setDraftNotice(strings.submit.draftKept);
       return;
     }
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -221,6 +249,10 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
           style={{ display: 'flex', flexDirection: 'column', flex: 1, outline: 'none' }}
           onKeyDown={onScreenKey}
         >
+          {/* Escape on a kept draft does nothing visible: say why, and how to leave. */}
+          <div role="status" style={srOnly}>
+            {draftNotice}
+          </div>
           {route.name === 'post' && <FeedbackDetail key={route.id} postId={route.id} initialPost={route.initial} onBack={pop} />}
           {route.name === 'submit' && (
             <FeedbackSubmit
@@ -228,6 +260,8 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
               onDone={(post) => setStack([{ name: 'tabs' }, { name: 'post', id: post.id, initial: post }])}
               onDirtyChange={(dirty) => {
                 draftDirty.current = dirty;
+                reportDirty.current?.(dirty);
+                if (!dirty) setDraftNotice('');
               }}
             />
           )}

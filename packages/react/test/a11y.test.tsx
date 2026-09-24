@@ -143,7 +143,14 @@ describe('accessibility and resilience', () => {
   });
 
   it('keeps a started draft when Escape is pressed in the submit form', async () => {
-    render(<FeedbackBoard adapter={seed()} locale="en" />);
+    const onDirtyChange = vi.fn();
+    const host = vi.fn();
+    render(
+      // biome-ignore lint/a11y/noStaticElementInteractions: a stand-in for a host dialog's Escape listener
+      <div onKeyDown={host}>
+        <FeedbackBoard adapter={seed()} locale="en" onDirtyChange={onDirtyChange} />
+      </div>,
+    );
     fireEvent.click(await screen.findByRole('button', { name: /New idea/ }));
     const title = screen.getByLabelText('Title');
     fireEvent.change(title, { target: { value: 'Half an idea' } });
@@ -154,6 +161,9 @@ describe('accessibility and resilience', () => {
     expect(screen.getByLabelText('Title')).toBe(title);
     // Marked as handled, so a host dialog around the board does not close and lose it either.
     expect(fireEvent.keyDown(title, { key: 'Escape' })).toBe(false);
+    expect(screen.getByRole('status', { name: '' }).textContent).toBe('Draft kept. Use Back to discard it.');
+    expect(host).not.toHaveBeenCalled();
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
   });
 
   it('keeps focus on a busy button so a failed request does not lose the user', async () => {

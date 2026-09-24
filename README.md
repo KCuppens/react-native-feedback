@@ -93,6 +93,15 @@ Every screen is exported for use inside your own navigator, and every hook for f
 
 `<FeedbackUpdatesBadge />` shows the user's unseen status changes (e.g. on your tab-bar icon).
 
+**In a dialog.** Escape goes back inside the board. On the submit screen with unsaved input it keeps the draft and marks the key as handled (`preventDefault` + `stopPropagation`). Dialogs that listen in the capture phase (Radix / shadcn) close before the board sees the key, so block them with `onDirtyChange`:
+
+```tsx
+const [dirty, setDirty] = useState(false);
+<Dialog.Content onEscapeKeyDown={(e) => dirty && e.preventDefault()} onInteractOutside={(e) => dirty && e.preventDefault()}>
+  <FeedbackBoard projectKey="pk_…" onDirtyChange={setDirty} />
+</Dialog.Content>
+```
+
 ### Your own backend
 
 Pass `adapter` instead of `projectKey` to plug in any backend that implements `FeedbackAdapter`. `createMemoryAdapter()` is a complete in-memory backend for tests, Storybook and demos.

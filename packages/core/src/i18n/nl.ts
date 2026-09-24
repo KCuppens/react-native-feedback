@@ -62,6 +62,7 @@ export const nl: FeedbackStrings = {
     successPublished: 'Bedankt! Je bericht staat online.',
     cancel: 'Annuleren',
     done: 'Klaar',
+    draftKept: 'Concept bewaard. Gebruik Terug om het te verwijderen.',
     tooLong: (max) => `Maximaal ${max} tekens.`,
     required: 'Verplicht',
   },
