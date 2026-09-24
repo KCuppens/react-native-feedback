@@ -82,6 +82,8 @@ export interface EndUserRow {
   is_admin: number;
   last_seen_updates_at: number | null;
   created_at: number;
+  /** Built-in locale code from the user's last write; null until then. */
+  locale: string | null;
 }
 
 /** Who is making a public request. */
@@ -92,6 +94,8 @@ export interface Identity {
   email: string | null;
   avatarUrl: string | null;
   claimsAdmin: boolean;
+  /** Built-in locale matching `X-Feedback-Locale`, or null when the client sent none. */
+  locale: string | null;
 }
 
 export type AdminLevel = 'full' | 'moderator';

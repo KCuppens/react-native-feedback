@@ -34,6 +34,21 @@ describe('createHostedAdapter', () => {
     expect(headers['X-Feedback-Anon']).toBeUndefined();
   });
 
+  it("sends the user's language, read per request", async () => {
+    const fetch = vi.fn(async () => jsonResponse(200, {}));
+    let locale = 'de';
+    const adapter = createHostedAdapter({ projectKey: 'pk_1', baseUrl: 'https://api.test', userToken: 'tok', fetch, locale: () => locale });
+    await adapter.getConfig();
+    locale = 'ja';
+    await adapter.getConfig();
+    const sent = fetch.mock.calls.map((call) => ((call as unknown as [string, RequestInit])[1].headers as Record<string, string>)['X-Feedback-Locale']);
+    expect(sent).toEqual(['de', 'ja']);
+
+    const silent = vi.fn(async () => jsonResponse(200, {}));
+    await createHostedAdapter({ projectKey: 'pk_1', baseUrl: 'https://api.test', userToken: 'tok', fetch: silent }).getConfig();
+    expect((silent.mock.calls[0] as unknown as [string, RequestInit])[1].headers).not.toHaveProperty('X-Feedback-Locale');
+  });
+
   it('refreshes an expired token once and retries', async () => {
     const fetch = vi
       .fn()

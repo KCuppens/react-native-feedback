@@ -3,26 +3,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, latestError, keys } from '../api';
 import { navigate } from '../router';
+import { DASHBOARD_LOCALES, useI18n, type DashboardStrings } from '../i18n';
 import { ConfirmButton, SecretField, ErrorMessage } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
-const TOGGLES: { key: keyof ProjectSettings; label: string; help: string }[] = [
-  { key: 'autoApprove', label: 'Auto-approve submissions', help: 'Skip the review queue: new posts are public immediately.' },
-  { key: 'allowAnonymous', label: 'Allow anonymous users', help: 'Users without a signed token can post and vote with a device id.' },
-  { key: 'allowDownvotes', label: 'Allow downvotes', help: 'Otherwise only upvotes are possible.' },
-  { key: 'allowComments', label: 'Allow comments', help: '' },
-  { key: 'allowAttachments', label: 'Allow image attachments', help: 'Screenshots up to 5 MB.' },
-  { key: 'roadmapEnabled', label: 'Show roadmap', help: 'Planned / In progress / Done columns.' },
-  { key: 'inAppAdmin', label: 'In-app admin', help: 'Signed users with isAdmin: true can moderate inside the widget.' },
-  { key: 'publicBoard', label: 'Public board page', help: 'Read-and-vote page at /p/<slug>.' },
-  {
-    key: 'notifySubmitter',
-    label: 'Email submitters',
-    help: 'On approval, decline and status changes (needs their email in the signed token).',
-  },
-];
+const TOGGLES = [
+  'autoApprove',
+  'allowAnonymous',
+  'allowDownvotes',
+  'allowComments',
+  'allowAttachments',
+  'roadmapEnabled',
+  'inAppAdmin',
+  'publicBoard',
+  'notifySubmitter',
+] as const satisfies readonly (keyof ProjectSettings & keyof DashboardStrings['settings']['toggles'])[];
 
 export function SettingsPage({ project }: { project: ProjectSummary }) {
+  const { t } = useI18n();
   const admin = api.project(project.id);
   const client = useQueryClient();
   const invalidate = useProjectInvalidate(project.id);
@@ -66,43 +64,54 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
       <ErrorMessage error={error} />
 
       <section className="card stack">
-        <h3>Board behaviour</h3>
+        <h3>{t.settings.behaviour}</h3>
         {settings.isError ? (
           <ErrorMessage error={settings.error} retry={() => settings.refetch()} />
         ) : !current ? (
-          <p className="muted">Loading…</p>
+          <p className="muted">{t.common.loading}</p>
         ) : (
           <>
-            {TOGGLES.map((t) => (
-              <label key={t.key} className="toggle">
-                <input type="checkbox" checked={Boolean(current[t.key])} onChange={(e) => save.mutate({ [t.key]: e.target.checked })} />
+            {TOGGLES.map((key) => (
+              <label key={key} className="toggle">
+                <input type="checkbox" checked={Boolean(current[key])} onChange={(e) => save.mutate({ [key]: e.target.checked })} />
                 <span>
-                  {t.label}
-                  {t.help && <span className="muted small block">{t.help}</span>}
+                  {t.settings.toggles[key].label}
+                  {t.settings.toggles[key].help && <span className="muted small block">{t.settings.toggles[key].help}</span>}
                 </span>
               </label>
             ))}
             <label>
-              Moderation email
+              {t.settings.moderationEmail}
               <div className="row">
                 <input
                   type="email"
                   value={adminEmail ?? current.adminEmail ?? ''}
                   onChange={(e) => setAdminEmail(e.target.value)}
-                  placeholder="Defaults to ADMIN_EMAIL on the worker"
+                  placeholder={t.settings.moderationEmailPlaceholder}
                 />
                 <button
                   type="button"
                   onClick={() => save.mutate({ adminEmail: (adminEmail ?? '').trim() || null })}
                   disabled={adminEmail === null}
                 >
-                  Save
+                  {t.common.save}
                 </button>
               </div>
             </label>
+            <label>
+              {t.settings.emailLanguage}
+              <select value={current.emailLocale} onChange={(e) => save.mutate({ emailLocale: e.target.value })}>
+                {Object.entries(DASHBOARD_LOCALES).map(([code, strings]) => (
+                  <option key={code} value={code} lang={code}>
+                    {strings.languageName}
+                  </option>
+                ))}
+              </select>
+              <span className="muted small">{t.settings.emailLanguageHelp}</span>
+            </label>
             {current.publicBoard && (
               <p className="small">
-                Public board: <a href={`${origin}/p/${project.slug}`} target="_blank" rel="noreferrer">{`${origin}/p/${project.slug}`}</a>
+                {t.settings.publicBoard} <a href={`${origin}/p/${project.slug}`} target="_blank" rel="noreferrer">{`${origin}/p/${project.slug}`}</a>
               </p>
             )}
           </>
@@ -110,48 +119,46 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
       </section>
 
       <section className="card stack">
-        <h3>Keys</h3>
+        <h3>{t.settings.keys}</h3>
         <ErrorMessage error={secrets.error} retry={() => secrets.refetch()} />
         {secrets.data && (
           <>
-            <SecretField label="Public key: pass as projectKey in your app" value={secrets.data.publicKey} revealed />
-            <SecretField label="Signing secret: your server only, for signFeedbackUser()" value={secrets.data.signingSecret} />
+            <SecretField label={t.settings.publicKey} value={secrets.data.publicKey} revealed />
+            <SecretField label={t.settings.signingSecret} value={secrets.data.signingSecret} />
           </>
         )}
-        {newSecretKey && <SecretField label="New admin API key (copy now, shown once)" value={newSecretKey} revealed />}
+        {newSecretKey && <SecretField label={t.settings.newAdminKey} value={newSecretKey} revealed />}
         <div className="row wrap">
           <ConfirmButton
-            label="Rotate admin API key"
-            question="Scripts using the current key stop working. Rotate?"
-            confirmLabel="Rotate"
+            label={t.settings.rotateAdmin}
+            question={t.settings.rotateAdminQuestion}
+            confirmLabel={t.settings.rotate}
             className=""
             pending={rotate.isPending}
             onConfirm={() => rotate.mutate('secret')}
           />
           <ConfirmButton
-            label="Rotate signing secret"
-            question="Your servers must sign with the new secret. Rotate?"
-            confirmLabel="Rotate"
+            label={t.settings.rotateSigning}
+            question={t.settings.rotateSigningQuestion}
+            confirmLabel={t.settings.rotate}
             className=""
             pending={rotate.isPending}
             onConfirm={() => rotate.mutate('signing')}
           />
           <ConfirmButton
-            label="Rotate public key"
-            question="Shipped app builds stop working until updated. Rotate?"
-            confirmLabel="Rotate"
+            label={t.settings.rotatePublic}
+            question={t.settings.rotatePublicQuestion}
+            confirmLabel={t.settings.rotate}
             className=""
             pending={rotate.isPending}
             onConfirm={() => rotate.mutate('public')}
           />
         </div>
-        <p className="muted small">
-          Rotating the public key or signing secret breaks existing app builds and server tokens until you ship the new values.
-        </p>
+        <p className="muted small">{t.settings.rotateNote}</p>
       </section>
 
       <section className="card stack">
-        <h3>Install</h3>
+        <h3>{t.settings.install}</h3>
         <pre className="code">{`npm i @kobecuppens/react-native-feedback   # Expo / React Native / RN-web
 npm i @kobecuppens/react-feedback          # React DOM
 
@@ -167,27 +174,25 @@ const token = await signFeedbackUser({ id: user.id, name: user.name, email: user
       </section>
 
       <section className="card stack">
-        <h3>Project</h3>
+        <h3>{t.settings.project}</h3>
         <div className="row">
-          <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Project name" />
+          <input value={name} onChange={(e) => setName(e.target.value)} aria-label={t.settings.projectName} />
           <button type="button" onClick={() => rename.mutate()} disabled={!name.trim() || name === project.name}>
-            Rename
+            {t.settings.rename}
           </button>
         </div>
         <details>
-          <summary className="danger-text">Delete project…</summary>
-          <p className="small">
-            This deletes every post, vote, comment and image. Type <strong>{project.slug}</strong> to confirm.
-          </p>
+          <summary className="danger-text">{t.settings.deleteProject}</summary>
+          <p className="small">{t.settings.deleteWarning(<strong>{project.slug}</strong>)}</p>
           <div className="row">
-            <input value={confirmDelete} onChange={(e) => setConfirmDelete(e.target.value)} aria-label="Confirm slug" />
+            <input value={confirmDelete} onChange={(e) => setConfirmDelete(e.target.value)} aria-label={t.settings.confirmSlug} />
             <button
               type="button"
               className="danger"
               disabled={confirmDelete !== project.slug || remove.isPending}
               onClick={() => remove.mutate()}
             >
-              Delete forever
+              {t.settings.deleteForever}
             </button>
           </div>
         </details>

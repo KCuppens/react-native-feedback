@@ -2,10 +2,12 @@ import { FeedbackApiError, type Post, type PostStatus } from '@kobecuppens/feedb
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, keys, latestError } from '../api';
-import { ago, authorName, ConfirmButton, ErrorMessage, StatusBadge, StatusOptions, Thumbs, useDebouncedValue, useDialogFocus } from '../ui';
+import { useI18n } from '../i18n';
+import { authorName, ConfirmButton, ErrorMessage, StatusBadge, StatusOptions, Thumbs, useDebouncedValue, useDialogFocus } from '../ui';
 import { usePostChanged } from './Queue';
 
 export function PostDrawer({ projectId, postId, onClose }: { projectId: string; postId: string; onClose: () => void }) {
+  const { t, board, ago } = useI18n();
   const admin = api.project(projectId);
   const changed = usePostChanged(projectId);
   const post = useQuery({ queryKey: keys.post(projectId, postId), queryFn: () => admin.getPost(postId) });
@@ -34,15 +36,15 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <aside ref={dialog} tabIndex={-1} className="drawer" role="dialog" aria-modal="true" aria-label="Post">
+      <aside ref={dialog} tabIndex={-1} className="drawer" role="dialog" aria-modal="true" aria-label={t.drawer.label}>
         <div className="row between">
-          <span className="muted small">{current ? `${authorName(current.author)} · ${ago(current.createdAt)}` : ''}</span>
-          <button type="button" className="ghost" onClick={onClose} aria-label="Close">
+          <span className="muted small">{current ? `${authorName(current.author, board.post.anonymous)} · ${ago(current.createdAt)}` : ''}</span>
+          <button type="button" className="ghost" onClick={onClose} aria-label={t.common.close}>
             ✕
           </button>
         </div>
         {post.isPending ? (
-          <p className="muted">Loading…</p>
+          <p className="muted">{t.common.loading}</p>
         ) : post.isError ? (
           <ErrorMessage error={post.error} retry={() => post.refetch()} />
         ) : (
@@ -51,12 +53,10 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
               <h2>{current.title}</h2>
               <div className="row">
                 <StatusBadge post={current} />
-                <span className="muted small">
-                  ▲ {current.upvotes} · ▼ {current.downvotes} · score {current.score}
-                </span>
+                <span className="muted small">{t.drawer.votes(current.upvotes, current.downvotes, current.score)}</span>
               </div>
-              {current.mergedIntoId && <p className="muted">Merged into another post.</p>}
-              {current.declineReason && <p className="muted">Decline reason: {current.declineReason}</p>}
+              {current.mergedIntoId && <p className="muted">{t.drawer.merged}</p>}
+              {current.declineReason && <p className="muted">{t.drawer.declineReason(current.declineReason)}</p>}
               {current.body && <p className="body">{current.body}</p>}
               <Thumbs attachments={current.attachments} />
 
@@ -64,34 +64,34 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                 {current.moderation !== 'approved' && (
                   <div className="row">
                     <button type="button" className="primary" onClick={() => approve.mutate()} disabled={approve.isPending}>
-                      Approve
+                      {t.queue.approve}
                     </button>
                     {current.moderation === 'pending' && (
                       <>
                         <input
                           value={declineReason}
                           onChange={(e) => setDeclineReason(e.target.value)}
-                          placeholder="Decline reason (optional)"
-                          aria-label="Decline reason"
+                          placeholder={t.drawer.reasonPlaceholder}
+                          aria-label={t.drawer.reasonLabel}
                         />
                         <button type="button" className="danger" onClick={() => decline.mutate()} disabled={decline.isPending}>
-                          Decline
+                          {t.queue.decline}
                         </button>
                       </>
                     )}
                   </div>
                 )}
                 <label>
-                  Status
+                  {t.drawer.status}
                   <select value={current.status} onChange={(e) => setStatus.mutate(e.target.value as PostStatus)}>
                     <StatusOptions />
                   </select>
                 </label>
                 {!current.mergedIntoId && <MergeControl projectId={projectId} post={current} onMerged={onClose} />}
                 <ConfirmButton
-                  label="Delete post…"
-                  question="Delete permanently, including votes, comments and images?"
-                  confirmLabel="Delete"
+                  label={t.drawer.deletePost}
+                  question={t.drawer.deleteQuestion}
+                  confirmLabel={t.common.delete}
                   pending={remove.isPending}
                   onConfirm={() => remove.mutate()}
                 />
@@ -109,6 +109,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
 
 /** Pick a target and merge this post into it as a duplicate. */
 function MergeControl({ projectId, post, onMerged }: { projectId: string; post: Post; onMerged: () => void }) {
+  const { t } = useI18n();
   const admin = api.project(projectId);
   const changed = usePostChanged(projectId);
   const client = useQueryClient();
@@ -150,12 +151,12 @@ function MergeControl({ projectId, post, onMerged }: { projectId: string; post: 
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Find duplicate target…"
-          aria-label="Search merge target"
+          placeholder={t.drawer.findTarget}
+          aria-label={t.drawer.findTargetLabel}
           onFocus={() => setOpen(true)}
         />
-        <select value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Merge into" onFocus={() => setOpen(true)}>
-          <option value="">Merge into…</option>
+        <select value={target} onChange={(e) => setTarget(e.target.value)} aria-label={t.drawer.mergeIntoLabel} onFocus={() => setOpen(true)}>
+          <option value="">{t.drawer.mergeInto}</option>
           {candidates.data
             ?.filter((c) => c.id !== post.id)
             .map((c) => (
@@ -165,7 +166,7 @@ function MergeControl({ projectId, post, onMerged }: { projectId: string; post: 
             ))}
         </select>
         <button type="button" onClick={() => merge.mutate()} disabled={!target || merge.isPending}>
-          Merge
+          {t.drawer.merge}
         </button>
       </div>
       <ErrorMessage error={merge.error} />
@@ -175,6 +176,7 @@ function MergeControl({ projectId, post, onMerged }: { projectId: string; post: 
 
 /** The post's comments, with delete and an official team reply. */
 function PostComments({ projectId, postId }: { projectId: string; postId: string }) {
+  const { t, board, ago } = useI18n();
   const admin = api.project(projectId);
   const changed = usePostChanged(projectId);
   const client = useQueryClient();
@@ -203,24 +205,24 @@ function PostComments({ projectId, postId }: { projectId: string; postId: string
 
   return (
     <>
-      <h3>Comments</h3>
-      {comments.isPending && <p className="muted">Loading comments…</p>}
+      <h3>{t.drawer.comments}</h3>
+      {comments.isPending && <p className="muted">{t.drawer.loadingComments}</p>}
       <ErrorMessage error={comments.error} retry={() => comments.refetch()} />
       <ErrorMessage error={removeComment.error} />
-      {comments.isSuccess && list.length === 0 && <p className="muted">No comments yet.</p>}
+      {comments.isSuccess && list.length === 0 && <p className="muted">{t.drawer.noComments}</p>}
       <ul className="comments">
         {list.map((c) => (
           <li key={c.id} className={c.isOfficial ? 'official' : undefined}>
             <div className="row between small">
               <strong>
-                {authorName(c.author, c.isOfficial ? 'Team' : 'Anonymous')}
-                {c.isOfficial && <span className="badge approved">Team</span>}
+                {authorName(c.author, c.isOfficial ? t.common.team : board.post.anonymous)}
+                {c.isOfficial && <span className="badge approved">{t.common.team}</span>}
               </strong>
               <span className="row muted">
                 {ago(c.createdAt)}
                 <ConfirmButton
-                  label="Delete"
-                  question="Delete this comment?"
+                  label={t.common.delete}
+                  question={t.drawer.deleteCommentQuestion}
                   className="ghost small"
                   pending={removeComment.isPending}
                   onConfirm={() => removeComment.mutate(c.id)}
@@ -233,7 +235,7 @@ function PostComments({ projectId, postId }: { projectId: string; postId: string
       </ul>
       {comments.hasNextPage && (
         <button type="button" onClick={() => void comments.fetchNextPage()} disabled={comments.isFetchingNextPage}>
-          Load more comments
+          {t.drawer.loadMoreComments}
         </button>
       )}
       <form
@@ -246,12 +248,12 @@ function PostComments({ projectId, postId }: { projectId: string; postId: string
         <textarea
           value={reply}
           onChange={(e) => setReply(e.target.value)}
-          placeholder="Official reply (shown with a Team badge)"
-          aria-label="Official reply"
+          placeholder={t.drawer.replyPlaceholder}
+          aria-label={t.drawer.replyLabel}
           rows={3}
         />
         <button type="submit" className="primary" disabled={!reply.trim() || sendReply.isPending}>
-          Reply as team
+          {t.drawer.replyAsTeam}
         </button>
         <ErrorMessage error={sendReply.error} />
       </form>

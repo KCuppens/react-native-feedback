@@ -3,10 +3,12 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, keys } from '../api';
 import { href } from '../router';
-import { ago, authorName, ErrorMessage, type ModerationFilter, StatusBadge, StatusOptions, useDebouncedValue } from '../ui';
+import { useI18n } from '../i18n';
+import { authorName, ErrorMessage, type ModerationFilter, StatusBadge, StatusOptions, useDebouncedValue } from '../ui';
 import { usePostChanged } from './Queue';
 
 export function PostsPage({ projectId }: { projectId: string }) {
+  const { t, board, ago } = useI18n();
   const admin = api.project(projectId);
   const changed = usePostChanged(projectId);
   const [moderation, setModeration] = useState<ModerationFilter>('all');
@@ -30,41 +32,41 @@ export function PostsPage({ projectId }: { projectId: string }) {
       <div className="row filters">
         <input
           type="search"
-          placeholder="Search title or body…"
-          aria-label="Search posts"
+          placeholder={t.posts.searchPlaceholder}
+          aria-label={t.posts.searchLabel}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <select value={moderation} onChange={(e) => setModeration(e.target.value as ModerationFilter)} aria-label="Moderation">
-          <option value="all">Any moderation</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="declined">Declined</option>
+        <select value={moderation} onChange={(e) => setModeration(e.target.value as ModerationFilter)} aria-label={t.posts.moderation}>
+          <option value="all">{t.posts.anyModeration}</option>
+          <option value="pending">{t.moderation.pending}</option>
+          <option value="approved">{t.moderation.approved}</option>
+          <option value="declined">{t.moderation.declined}</option>
         </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value as PostStatus | '')} aria-label="Status">
-          <option value="">Any status</option>
+        <select value={status} onChange={(e) => setStatus(e.target.value as PostStatus | '')} aria-label={t.posts.status}>
+          <option value="">{t.posts.anyStatus}</option>
           <StatusOptions />
         </select>
       </div>
       <ErrorMessage error={update.error} />
       {posts.isPending ? (
-        <p className="muted">Loading…</p>
+        <p className="muted">{t.common.loading}</p>
       ) : posts.isError ? (
         <ErrorMessage error={posts.error} retry={() => posts.refetch()} />
       ) : posts.data.items.length === 0 ? (
-        <p className="muted">No posts match.</p>
+        <p className="muted">{t.posts.noMatch}</p>
       ) : (
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Title</th>
-                <th className="num">Score</th>
-                <th className="num">Comments</th>
-                <th>State</th>
-                <th>Status</th>
-                <th>Category</th>
-                <th>Created</th>
+                <th>{t.posts.columns.title}</th>
+                <th className="num">{t.posts.columns.score}</th>
+                <th className="num">{t.posts.columns.comments}</th>
+                <th>{t.posts.columns.state}</th>
+                <th>{t.posts.columns.status}</th>
+                <th>{t.posts.columns.category}</th>
+                <th>{t.posts.columns.created}</th>
               </tr>
             </thead>
             <tbody>
@@ -72,7 +74,7 @@ export function PostsPage({ projectId }: { projectId: string }) {
                 <tr key={post.id}>
                   <td>
                     <a href={href(projectId, 'posts', post.id)}>{post.title}</a>
-                    <div className="muted small">{authorName(post.author)}</div>
+                    <div className="muted small">{authorName(post.author, board.post.anonymous)}</div>
                   </td>
                   <td className="num">
                     {post.score}
@@ -88,7 +90,7 @@ export function PostsPage({ projectId }: { projectId: string }) {
                   <td>
                     <select
                       value={post.status}
-                      aria-label={`Status of ${post.title}`}
+                      aria-label={t.posts.statusOf(post.title)}
                       onChange={(e) => update.mutate({ id: post.id, patch: { status: e.target.value as PostStatus } })}
                     >
                       <StatusOptions />
@@ -97,7 +99,7 @@ export function PostsPage({ projectId }: { projectId: string }) {
                   <td>
                     <select
                       value={post.category?.id ?? ''}
-                      aria-label={`Category of ${post.title}`}
+                      aria-label={t.posts.categoryOf(post.title)}
                       onChange={(e) => update.mutate({ id: post.id, patch: { categoryId: e.target.value || null } })}
                     >
                       <option value="">—</option>
@@ -118,12 +120,12 @@ export function PostsPage({ projectId }: { projectId: string }) {
       <div className="row">
         {page && (
           <button type="button" onClick={() => setPage(null)}>
-            First page
+            {t.posts.firstPage}
           </button>
         )}
         {posts.data?.nextCursor && (
           <button type="button" onClick={() => setPage(posts.data.nextCursor)}>
-            Next page
+            {t.posts.nextPage}
           </button>
         )}
       </div>

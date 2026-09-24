@@ -1,3 +1,4 @@
+import { matchLocale } from '@kobecuppens/feedback-core';
 import { hmacHex, timingSafeEqual, verifyFeedbackUser } from '@kobecuppens/feedback-core/server';
 import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
@@ -23,6 +24,8 @@ export const projectAuth = createMiddleware<AppEnv>(async (c, next) => {
 });
 
 async function resolveIdentity(c: Context<AppEnv>, project: Project): Promise<Identity | null> {
+  const requested = c.req.header('X-Feedback-Locale');
+  const locale = requested ? matchLocale(requested) : null;
   const token = c.req.header('X-Feedback-User');
   if (token) {
     const result = await verifyFeedbackUser(token, project.signingSecret);
@@ -42,12 +45,13 @@ async function resolveIdentity(c: Context<AppEnv>, project: Project): Promise<Id
       email: claims.email ?? null,
       avatarUrl: claims.avatarUrl ?? null,
       claimsAdmin: claims.isAdmin === true,
+      locale,
     };
   }
   const anon = c.req.header('X-Feedback-Anon');
   if (anon && project.settings.allowAnonymous) {
     if (!ANON_ID.test(anon)) fail(400, 'invalid_anonymous_id');
-    return { externalId: `anon:${anon}`, anonymous: true, name: null, email: null, avatarUrl: null, claimsAdmin: false };
+    return { externalId: `anon:${anon}`, anonymous: true, name: null, email: null, avatarUrl: null, claimsAdmin: false, locale };
   }
   return null;
 }
@@ -79,17 +83,24 @@ export async function requireViewer(c: Context<AppEnv>): Promise<EndUserRow> {
   const existing = await getViewer(c);
   const isAdmin = identity.claimsAdmin ? 1 : 0;
   if (existing) {
+    // A client that sends no language keeps the one stored before.
+    const locale = identity.locale ?? existing.locale;
     const changed =
-      !identity.anonymous &&
-      (existing.name !== identity.name ||
-        existing.email !== identity.email ||
-        existing.avatar_url !== identity.avatarUrl ||
-        existing.is_admin !== isAdmin);
+      existing.locale !== locale ||
+      (!identity.anonymous &&
+        (existing.name !== identity.name ||
+          existing.email !== identity.email ||
+          existing.avatar_url !== identity.avatarUrl ||
+          existing.is_admin !== isAdmin));
     if (!changed) return existing;
-    await c.env.DB.prepare('UPDATE end_users SET name = ?, email = ?, avatar_url = ?, is_admin = ? WHERE id = ?')
-      .bind(identity.name, identity.email, identity.avatarUrl, isAdmin, existing.id)
+    // Anonymous users have no profile to refresh; only their language can change.
+    const profile = identity.anonymous
+      ? { name: existing.name, email: existing.email, avatar_url: existing.avatar_url, is_admin: existing.is_admin }
+      : { name: identity.name, email: identity.email, avatar_url: identity.avatarUrl, is_admin: isAdmin };
+    await c.env.DB.prepare('UPDATE end_users SET name = ?, email = ?, avatar_url = ?, is_admin = ?, locale = ? WHERE id = ?')
+      .bind(profile.name, profile.email, profile.avatar_url, profile.is_admin, locale, existing.id)
       .run();
-    const updated = { ...existing, name: identity.name, email: identity.email, avatar_url: identity.avatarUrl, is_admin: isAdmin };
+    const updated = { ...existing, ...profile, locale };
     c.set('viewer', updated);
     return updated;
   }
@@ -104,15 +115,16 @@ export async function requireViewer(c: Context<AppEnv>): Promise<EndUserRow> {
     is_admin: isAdmin,
     last_seen_updates_at: null,
     created_at: now(),
+    locale: identity.locale,
   };
   // ON CONFLICT covers two concurrent first requests from the same user.
   const saved = await c.env.DB.prepare(
-    `INSERT INTO end_users (id, project_id, external_id, is_anonymous, name, email, avatar_url, is_admin, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO end_users (id, project_id, external_id, is_anonymous, name, email, avatar_url, is_admin, created_at, locale)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (project_id, external_id) DO UPDATE SET name = excluded.name
      RETURNING *`,
   )
-    .bind(row.id, row.project_id, row.external_id, row.is_anonymous, row.name, row.email, row.avatar_url, row.is_admin, row.created_at)
+    .bind(row.id, row.project_id, row.external_id, row.is_anonymous, row.name, row.email, row.avatar_url, row.is_admin, row.created_at, row.locale)
     .first<EndUserRow>();
   c.set('viewer', saved ?? row);
   return saved ?? row;

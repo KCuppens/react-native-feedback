@@ -26,7 +26,7 @@ app.use('/v1/*', async (c, next) => {
   c.header('Access-Control-Allow-Origin', '*');
   c.header(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-Feedback-Key, X-Feedback-User, X-Feedback-Anon, X-Feedback-Project',
+    'Content-Type, Authorization, X-Feedback-Key, X-Feedback-User, X-Feedback-Anon, X-Feedback-Project, X-Feedback-Locale',
   );
   c.header('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   c.header('Access-Control-Max-Age', '86400');

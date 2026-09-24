@@ -31,8 +31,13 @@ export function detectLocale(): FeedbackLocale {
   }
 }
 
+/** The built-in locale for a requested tag, or the device's when none is given. */
+export function resolveLocale(locale: string | undefined): FeedbackLocale {
+  return locale ? matchLocale(locale) : detectLocale();
+}
+
 export function resolveStrings(locale: string | undefined, overrides?: FeedbackStringsInput): FeedbackStrings {
-  const base = locales[locale ? matchLocale(locale) : detectLocale()];
+  const base = locales[resolveLocale(locale)];
   return overrides ? deepMerge(base, overrides) : base;
 }
 

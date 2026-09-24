@@ -54,7 +54,7 @@ const feedbackToken = await signFeedbackUser(
 );
 ```
 
-Without a token, users are anonymous (a device id in AsyncStorage/localStorage), when the project allows it. `email` is only used to notify the submitter of status changes. `isAdmin` only takes effect when the project enables **in-app admin**.
+Without a token, users are anonymous (a device id in AsyncStorage/localStorage), when the project allows it. `email` is only used to notify the submitter of status changes, in the language their board runs in (the `locale` prop, sent with each request). `isAdmin` only takes effect when the project enables **in-app admin**.
 
 ## Styling
 
@@ -118,7 +118,7 @@ New posts are **pending**: visible only to their author ("Awaiting review") unti
 | `FEATURE_ADMIN_API` | worker var | `Authorization: Bearer sk_…` access to `/v1/admin/*` |
 | `FEATURE_PUBLIC_BOARD` | worker var | `/p/<slug>` pages (each project must also enable `publicBoard`) |
 | `FEATURE_EMAIL` | worker var | Moderation + submitter emails |
-| `autoApprove`, `inAppAdmin`, `publicBoard`, `allowAnonymous`, `allowDownvotes`, `allowComments`, `allowAttachments`, `roadmapEnabled`, `notifySubmitter`, `adminEmail` | per project (dashboard / admin API) | Enforced by the server |
+| `autoApprove`, `inAppAdmin`, `publicBoard`, `allowAnonymous`, `allowDownvotes`, `allowComments`, `allowAttachments`, `roadmapEnabled`, `notifySubmitter`, `adminEmail`, `emailLocale` | per project (dashboard / admin API) | Enforced by the server; `emailLocale` is the language of new-post emails to `adminEmail` |
 | `features={{ roadmap: false, … }}` | component prop | Can only **hide** things; never enables what the server disallows |
 
 With the dashboard off, create projects from the CLI:

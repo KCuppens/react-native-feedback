@@ -1,24 +1,11 @@
-import {
-  formatRelativeTime,
-  locales,
-  POST_STATUSES,
-  type Attachment,
-  type Moderation,
-  type Post,
-  type PostStatus,
-} from '@kobecuppens/feedback-core';
-import { errorText } from './api';
+import { FeedbackApiError, POST_STATUSES, type Attachment, type Moderation, type Post, type PostStatus } from '@kobecuppens/feedback-core';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-
-export const STATUS_LABELS = locales.en.status;
+import { errorText, useI18n } from './i18n';
 
 /** The posts list filter: one moderation state, or all of them. */
 export type ModerationFilter = Moderation | 'all';
 
-/** "3 hours ago", in the dashboard's (English) locale. */
-export const ago = (timestamp: number) => formatRelativeTime(locales.en, timestamp);
-
-export const authorName = (author: { name: string | null }, fallback = 'Anonymous') => author.name ?? fallback;
+export const authorName = (author: { name: string | null }, fallback: string) => author.name ?? fallback;
 
 /** `value`, but only once it has stopped changing for `ms` (e.g. a search box). */
 export function useDebouncedValue<T>(value: T, ms: number): T {
@@ -32,11 +19,12 @@ export function useDebouncedValue<T>(value: T, ms: number): T {
 
 /** Options for a status <select>. */
 export function StatusOptions({ statuses = POST_STATUSES }: { statuses?: readonly PostStatus[] }) {
+  const { board } = useI18n();
   return (
     <>
       {statuses.map((s) => (
         <option key={s} value={s}>
-          {STATUS_LABELS[s]}
+          {board.status[s]}
         </option>
       ))}
     </>
@@ -45,11 +33,12 @@ export function StatusOptions({ statuses = POST_STATUSES }: { statuses?: readonl
 
 /** Attachment thumbnails that open the full image in a new tab. */
 export function Thumbs({ attachments }: { attachments: Attachment[] }) {
+  const { t } = useI18n();
   if (attachments.length === 0) return null;
   return (
     <div className="thumbs">
       {attachments.map((a, i) => (
-        <a key={a.id} href={a.url} target="_blank" rel="noreferrer" aria-label={`Attachment ${i + 1} (opens in a new tab)`}>
+        <a key={a.id} href={a.url} target="_blank" rel="noreferrer" aria-label={t.attachment(i + 1)}>
           <img src={a.url} alt="" />
         </a>
       ))}
@@ -59,15 +48,17 @@ export function Thumbs({ attachments }: { attachments: Attachment[] }) {
 
 /** An announced error line, with an optional retry for failed loads. */
 export function ErrorMessage({ error, retry }: { error: unknown; retry?: () => unknown }) {
+  const { t } = useI18n();
   if (!error) return null;
   return (
-    <p className="error" role="alert">
-      {errorText(error)}
+    // The server's message is English and technical: kept as a tooltip for debugging.
+    <p className="error" role="alert" title={error instanceof FeedbackApiError ? error.message || error.code : undefined}>
+      {errorText(t, error)}
       {retry && (
         <>
           {' '}
           <button type="button" className="ghost small" onClick={() => void retry()}>
-            Retry
+            {t.common.retry}
           </button>
         </>
       )}
@@ -134,6 +125,7 @@ export function Modal({
   children: ReactNode;
   dismissible?: boolean;
 }) {
+  const { t } = useI18n();
   const ref = useDialogFocus<HTMLDivElement>(dismissible ? onClose : () => {});
   return (
     <div className="overlay" onMouseDown={(e) => dismissible && e.target === e.currentTarget && onClose()}>
@@ -141,7 +133,7 @@ export function Modal({
         <div className="row between">
           <h2>{title}</h2>
           {dismissible && (
-            <button type="button" className="ghost" onClick={onClose} aria-label="Close">
+            <button type="button" className="ghost" onClick={onClose} aria-label={t.common.close}>
               ✕
             </button>
           )}
@@ -153,6 +145,7 @@ export function Modal({
 }
 
 export function SecretField({ label, value, revealed = false }: { label: string; value: string; revealed?: boolean }) {
+  const { t } = useI18n();
   const [show, setShow] = useState(revealed);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   return (
@@ -167,7 +160,7 @@ export function SecretField({ label, value, revealed = false }: { label: string;
         />
         {!revealed && (
           <button type="button" className="ghost" onClick={() => setShow((s) => !s)}>
-            {show ? 'Hide' : 'Show'}
+            {show ? t.common.hide : t.common.show}
           </button>
         )}
         <button
@@ -185,7 +178,7 @@ export function SecretField({ label, value, revealed = false }: { label: string;
             );
           }}
         >
-          {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy'}
+          {copyState === 'copied' ? t.common.copied : copyState === 'failed' ? t.common.copyFailed : t.common.copy}
         </button>
       </div>
     </label>
@@ -211,6 +204,7 @@ export function ConfirmButton({
   pending?: boolean;
   className?: string;
 }) {
+  const { t } = useI18n();
   const [asking, setAsking] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
@@ -253,13 +247,14 @@ export function ConfirmButton({
         {confirmLabel ?? label}
       </button>
       <button ref={cancel} type="button" className="ghost" onClick={() => setAsking(false)}>
-        Cancel
+        {t.common.cancel}
       </button>
     </span>
   );
 }
 
 export function StatusBadge({ post }: { post: Post }) {
-  if (post.moderation !== 'approved') return <span className={`badge ${post.moderation}`}>{post.moderation}</span>;
-  return <span className={`badge status-${post.status}`}>{STATUS_LABELS[post.status]}</span>;
+  const { t, board } = useI18n();
+  if (post.moderation !== 'approved') return <span className={`badge ${post.moderation}`}>{t.moderation[post.moderation]}</span>;
+  return <span className={`badge status-${post.status}`}>{board.status[post.status]}</span>;
 }

@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { FeedbackAdapter } from '../adapter';
 import { createHostedAdapter, type KeyValueStorage } from '../hosted';
 import { useStableValue } from './stable';
-import { resolveStrings, type FeedbackStrings, type FeedbackStringsInput } from '../i18n';
+import { resolveLocale, resolveStrings, type FeedbackStrings, type FeedbackStringsInput } from '../i18n';
 import { resolveTheme, type FeedbackTheme, type ThemeProp } from '../theme';
 import { FeedbackApiError, type ClientFeatures, type Post } from '../types';
 import { feedbackKeys } from './keys';
@@ -60,9 +60,15 @@ export function FeedbackProvider(props: FeedbackProviderProps) {
     throw new Error('FeedbackProvider: pass either `projectKey` or a custom `adapter`.');
   }
 
+  // Read per request, so switching languages keeps the adapter (and its cache) intact.
+  const localeRef = useRef(resolveLocale(props.locale));
+  localeRef.current = resolveLocale(props.locale);
+
   // Intentional dependencies: getUserToken is read at call time; inline arrows would rebuild the adapter on every render
   const adapter = useMemo(
-    () => customAdapter ?? createHostedAdapter({ projectKey: projectKey!, baseUrl, userToken, getUserToken, storage }),
+    () =>
+      customAdapter ??
+      createHostedAdapter({ projectKey: projectKey!, baseUrl, userToken, getUserToken, storage, locale: () => localeRef.current }),
     [customAdapter, projectKey, baseUrl, userToken, storage],
   );
 

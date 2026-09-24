@@ -1,4 +1,4 @@
-import { BOARD_LIMITS, DEFAULT_PROJECT_SETTINGS, type ProjectSettings, type ProjectSummary } from '@kobecuppens/feedback-core';
+import { BOARD_LIMITS, DEFAULT_PROJECT_SETTINGS, locales, type ProjectSettings, type ProjectSummary } from '@kobecuppens/feedback-core';
 import type { Env, Project, ProjectRow } from './env';
 import { SLUG_MAX } from './keys.mjs';
 import { fail } from './util';
@@ -59,6 +59,11 @@ export function validateSettingsPatch(body: Record<string, unknown>): Partial<Pr
         fail(400, 'invalid_input', 'adminEmail must be an email address or null');
       }
       patch.adminEmail = value as string | null;
+    } else if (key === 'emailLocale') {
+      if (typeof value !== 'string' || !Object.keys(locales).includes(value)) {
+        fail(400, 'invalid_input', `emailLocale must be one of ${Object.keys(locales).join(', ')}`);
+      }
+      patch.emailLocale = value;
     } else {
       fail(400, 'invalid_input', `unknown setting ${key}`);
     }

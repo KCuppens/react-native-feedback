@@ -1,7 +1,8 @@
-import type { ProjectSecrets, ProjectSummary } from '@kobecuppens/feedback-core';
+import type { FeedbackLocale, ProjectSecrets, ProjectSummary } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, isUnauthorized, keys } from './api';
+import { DASHBOARD_LOCALES, useI18n } from './i18n';
 import { CategoriesPage } from './pages/Categories';
 import { PostDrawer } from './pages/PostDrawer';
 import { PostsPage } from './pages/Posts';
@@ -13,6 +14,7 @@ import { href, navigate, useRoute } from './router';
 import { Modal, SecretField, ErrorMessage } from './ui';
 
 export function App() {
+  const { t } = useI18n();
   // A 401 means "show the login"; anything else (offline, 5xx) is worth retrying.
   const me = useQuery({ queryKey: keys.me, queryFn: api.dashboard.me, retry: (count, error) => !isUnauthorized(error) && count < 2 });
   // Start the projects list alongside the session probe instead of after it (it answers 401
@@ -21,7 +23,7 @@ export function App() {
   useEffect(() => {
     void client.prefetchQuery({ queryKey: keys.projects, queryFn: api.dashboard.listProjects, retry: false });
   }, [client]);
-  if (me.isPending) return <div className="center muted">Loading…</div>;
+  if (me.isPending) return <div className="center muted">{t.common.loading}</div>;
   if (me.isError) {
     return isUnauthorized(me.error) ? (
       <Login />
@@ -35,6 +37,7 @@ export function App() {
 }
 
 function Login() {
+  const { t } = useI18n();
   const client = useQueryClient();
   const [password, setPassword] = useState('');
   const login = useMutation({
@@ -50,30 +53,42 @@ function Login() {
           login.mutate();
         }}
       >
-        <h1>Feedback admin</h1>
+        <h1>{t.login.title}</h1>
+        <LanguagePicker />
         <label>
-          Password
+          {t.login.password}
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password" />
         </label>
         <ErrorMessage error={login.error} />
         <button type="submit" className="primary" disabled={!password || login.isPending}>
-          {login.isPending ? 'Signing in…' : 'Sign in'}
+          {login.isPending ? t.login.signingIn : t.login.signIn}
         </button>
       </form>
     </div>
   );
 }
 
-const TABS = [
-  ['queue', 'Review queue'],
-  ['posts', 'All posts'],
-  ['roadmap', 'Roadmap'],
-  ['categories', 'Categories'],
-  ['webhooks', 'Webhooks'],
-  ['settings', 'Settings & keys'],
-] as const;
+const TABS = ['queue', 'posts', 'roadmap', 'categories', 'webhooks', 'settings'] as const;
+
+/** The dashboard's language; remembered in this browser. */
+function LanguagePicker() {
+  const { t, locale, setLocale } = useI18n();
+  return (
+    <label className="language">
+      {t.common.language}
+      <select value={locale} onChange={(e) => setLocale(e.target.value as FeedbackLocale)}>
+        {Object.entries(DASHBOARD_LOCALES).map(([code, strings]) => (
+          <option key={code} value={code} lang={code}>
+            {strings.languageName}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 function Shell() {
+  const { t } = useI18n();
   const route = useRoute();
   const client = useQueryClient();
   const projects = useQuery({ queryKey: keys.projects, queryFn: api.dashboard.listProjects });
@@ -97,8 +112,8 @@ function Shell() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand">Feedback</div>
-        <nav aria-label="Projects">
+        <div className="brand">{t.shell.brand}</div>
+        <nav aria-label={t.shell.projects}>
           {list.map((p) => (
             <a
               key={p.id}
@@ -110,47 +125,48 @@ function Shell() {
               {p.pendingCount > 0 && (
                 <span className="count">
                   {p.pendingCount}
-                  <span className="sr-only"> pending</span>
+                  <span className="sr-only"> {t.shell.pending(p.pendingCount)}</span>
                 </span>
               )}
             </a>
           ))}
         </nav>
         <button type="button" className="ghost" onClick={() => setCreating(true)}>
-          ＋ New project
+          {t.shell.newProject}
         </button>
         <div className="spacer" />
+        <LanguagePicker />
         <button type="button" className="ghost" onClick={() => logout.mutate()}>
-          Sign out
+          {t.shell.signOut}
         </button>
       </aside>
       <main className="main">
         {projects.isPending ? (
-          <p className="muted">Loading…</p>
+          <p className="muted">{t.common.loading}</p>
         ) : projects.isError ? (
           // Never fall through to "no projects" on a failed load: it invites duplicate projects.
           <ErrorMessage error={projects.error} retry={() => projects.refetch()} />
         ) : !project ? (
           <div className="empty">
-            <h2>No project selected</h2>
-            <p className="muted">Create a project for each app that embeds the board.</p>
+            <h2>{t.shell.noProject}</h2>
+            <p className="muted">{t.shell.noProjectHelp}</p>
             <button type="button" className="primary" onClick={() => setCreating(true)}>
-              Create a project
+              {t.shell.createProject}
             </button>
           </div>
         ) : (
           <>
             <header className="page-header">
               <h1>{project.name}</h1>
-              <nav className="tabs" aria-label="Sections">
-                {TABS.map(([id, label]) => (
+              <nav className="tabs" aria-label={t.shell.sections}>
+                {TABS.map((id) => (
                   <a
                     key={id}
                     href={href(project.id, id)}
                     className={route.tab === id ? 'active' : undefined}
                     aria-current={route.tab === id ? 'page' : undefined}
                   >
-                    {label}
+                    {t.tabs[id]}
                     {id === 'queue' && project.pendingCount > 0 ? ` (${project.pendingCount})` : ''}
                   </a>
                 ))}
@@ -187,6 +203,7 @@ function ProjectPage({ project }: { project: ProjectSummary }) {
 }
 
 function CreateProject({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const client = useQueryClient();
   const [name, setName] = useState('');
   const [secrets, setSecrets] = useState<(ProjectSecrets & { id: string }) | null>(null);
@@ -206,19 +223,19 @@ function CreateProject({ onClose }: { onClose: () => void }) {
     // Its own key so the dialog remounts and focus moves into it (the Create button is gone),
     // and not dismissible: a stray click must not discard the only copy of the admin key.
     return (
-      <Modal key="created" title="Project created" onClose={done} dismissible={false}>
-        <p role="alert">Project created. Copy the admin API key now: it is stored hashed and won't be shown again.</p>
-        <SecretField label="Public key (in your app)" value={secrets.publicKey} revealed />
-        <SecretField label="Signing secret (your server only)" value={secrets.signingSecret} />
-        <SecretField label="Admin API key (shown once)" value={secrets.secretKey ?? ''} />
+      <Modal key="created" title={t.create.createdTitle} onClose={done} dismissible={false}>
+        <p role="alert">{t.create.createdAlert}</p>
+        <SecretField label={t.create.publicKey} value={secrets.publicKey} revealed />
+        <SecretField label={t.create.signingSecret} value={secrets.signingSecret} />
+        <SecretField label={t.create.adminKey} value={secrets.secretKey ?? ''} />
         <button type="button" className="primary" onClick={done}>
-          I've copied the key
+          {t.create.copiedKey}
         </button>
       </Modal>
     );
   }
   return (
-    <Modal title="New project" onClose={onClose}>
+    <Modal title={t.create.title} onClose={onClose}>
       <form
         className="stack"
         onSubmit={(e) => {
@@ -227,12 +244,12 @@ function CreateProject({ onClose }: { onClose: () => void }) {
         }}
       >
         <label>
-          App name
+          {t.create.appName}
           <input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="1% Better" />
         </label>
         <ErrorMessage error={create.error} />
         <button type="submit" className="primary" disabled={!name.trim() || create.isPending}>
-          Create
+          {t.common.create}
         </button>
       </form>
     </Modal>

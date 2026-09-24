@@ -79,6 +79,9 @@ label { display: flex; flex-direction: column; gap: 4px; font-weight: 500; }
 .sidebar nav { display: flex; flex-direction: column; gap: 2px; }
 .sidebar nav a, .sidebar button { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 8px; color: var(--text); text-align: left; }
 .sidebar nav a.active { background: var(--surface-2); font-weight: 600; }
+.language { font-size: 12px; font-weight: 400; color: var(--muted); }
+.sidebar .language { padding: 4px 10px 8px; }
+.login .language { flex-direction: row; align-items: center; justify-content: flex-end; gap: 8px; }
 .count { background: var(--primary); color: var(--on-primary); border-radius: 999px; font-size: 11px; font-weight: 700; padding: 1px 7px; }
 .main { padding: 24px 32px; min-width: 0; }
 .page-header { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }

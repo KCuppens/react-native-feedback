@@ -2,10 +2,12 @@ import type { Category } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, latestError, keys } from '../api';
+import { useI18n } from '../i18n';
 import { ConfirmButton, ErrorMessage } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 export function CategoriesPage({ projectId }: { projectId: string }) {
+  const { t } = useI18n();
   const admin = api.project(projectId);
   const invalidate = useProjectInvalidate(projectId);
   const categories = useQuery({ queryKey: keys.categories(projectId), queryFn: () => admin.listCategories() });
@@ -43,16 +45,16 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
 
   return (
     <div className="stack narrow">
-      <p className="muted">Categories let users tag submissions (Feature, Bug, Improvement…) and filter the board.</p>
-      {categories.isPending && <p className="muted">Loading…</p>}
+      <p className="muted">{t.categories.intro}</p>
+      {categories.isPending && <p className="muted">{t.common.loading}</p>}
       <ErrorMessage error={categories.error} retry={() => categories.refetch()} />
-      {categories.isSuccess && list.length === 0 && <p className="muted">No categories yet. Add the first one below.</p>}
+      {categories.isSuccess && list.length === 0 && <p className="muted">{t.categories.empty}</p>}
       <ul className="list">
         {list.map((c, i) => (
           <li key={c.id} className="row">
             <ColorField
               value={c.color ?? '#6B7280'}
-              label={`Colour of ${c.name}`}
+              label={t.categories.colourOf(c.name)}
               onSave={(color) => update.mutate({ id: c.id, patch: { color } })}
             />
             <input
@@ -60,14 +62,14 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
               onBlur={(e) =>
                 e.target.value.trim() && e.target.value !== c.name && update.mutate({ id: c.id, patch: { name: e.target.value.trim() } })
               }
-              aria-label={`Name of ${c.name}`}
+              aria-label={t.categories.nameOf(c.name)}
             />
             <button
               type="button"
               className="ghost"
               disabled={i === 0 || reorder.isPending}
               onClick={() => move(i, i - 1)}
-              aria-label={`Move ${c.name} up`}
+              aria-label={t.categories.moveUp(c.name)}
             >
               ↑
             </button>
@@ -76,13 +78,13 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
               className="ghost"
               disabled={i === list.length - 1 || reorder.isPending}
               onClick={() => move(i, i + 1)}
-              aria-label={`Move ${c.name} down`}
+              aria-label={t.categories.moveDown(c.name)}
             >
               ↓
             </button>
             <ConfirmButton
-              label="Delete"
-              question={`Delete "${c.name}"? Its posts become uncategorized.`}
+              label={t.common.delete}
+              question={t.categories.deleteQuestion(c.name)}
               pending={remove.isPending}
               onConfirm={() => remove.mutate(c.id)}
             />
@@ -98,16 +100,16 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
             if (name.trim()) create.mutate();
           }}
         >
-          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label="Colour" />
+          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} aria-label={t.categories.colour} />
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="New category"
-            aria-label="New category name"
+            placeholder={t.categories.newPlaceholder}
+            aria-label={t.categories.newLabel}
             maxLength={40}
           />
           <button type="submit" className="primary" disabled={!name.trim() || create.isPending}>
-            Add
+            {t.common.add}
           </button>
         </form>
       )}

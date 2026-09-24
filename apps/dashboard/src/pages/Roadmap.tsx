@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { api, keys } from '../api';
 import { href } from '../router';
 import { usePostChanged } from './Queue';
-import { STATUS_LABELS, ErrorMessage, StatusOptions } from '../ui';
+import { useI18n } from '../i18n';
+import { ErrorMessage, StatusOptions } from '../ui';
 
 const COLUMNS: PostStatus[] = ['open', 'under_review', 'planned', 'in_progress', 'done'];
 const PER_COLUMN = 100;
@@ -17,6 +18,7 @@ interface Kanban {
 
 /** Kanban of approved posts; drag a card (or use its menu) to change status. */
 export function RoadmapPage({ projectId }: { projectId: string }) {
+  const { t, board } = useI18n();
   const admin = api.project(projectId);
   const client = useQueryClient();
   const key = keys.list(projectId, 'kanban');
@@ -51,7 +53,7 @@ export function RoadmapPage({ projectId }: { projectId: string }) {
     onSettled: () => changed(),
   });
 
-  if (posts.isPending) return <p className="muted">Loading…</p>;
+  if (posts.isPending) return <p className="muted">{t.common.loading}</p>;
   if (posts.isError) return <ErrorMessage error={posts.error} retry={() => posts.refetch()} />;
 
   return (
@@ -64,7 +66,7 @@ export function RoadmapPage({ projectId }: { projectId: string }) {
             <section
               key={status}
               className={`column${over === status ? ' over' : ''}`}
-              aria-label={STATUS_LABELS[status]}
+              aria-label={board.status[status]}
               onDragOver={(e) => {
                 e.preventDefault();
                 setOver(status);
@@ -78,10 +80,10 @@ export function RoadmapPage({ projectId }: { projectId: string }) {
               }}
             >
               <h3>
-                <span className={`badge status-${status}`}>{STATUS_LABELS[status]}</span> <span className="muted">{items.length}</span>
+                <span className={`badge status-${status}`}>{board.status[status]}</span> <span className="muted">{items.length}</span>
               </h3>
               {posts.data.truncated.includes(status) && (
-                <p className="muted column-note">Showing the top {PER_COLUMN}. Use All posts to see the rest.</p>
+                <p className="muted column-note">{t.roadmap.truncated(PER_COLUMN)}</p>
               )}
               {items.map((post) => (
                 <article
@@ -99,7 +101,7 @@ export function RoadmapPage({ projectId }: { projectId: string }) {
                     <span>▲ {post.score}</span>
                     <select
                       value={post.status}
-                      aria-label={`Move ${post.title}`}
+                      aria-label={t.roadmap.move(post.title)}
                       onChange={(e) => move.mutate({ id: post.id, status: e.target.value as PostStatus })}
                     >
                       <StatusOptions statuses={COLUMNS} />

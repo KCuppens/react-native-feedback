@@ -1,8 +1,9 @@
 import type { Post } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { ago, authorName, ErrorMessage, Thumbs } from '../ui';
+import { authorName, ErrorMessage, Thumbs } from '../ui';
 import { api, latestError, keys } from '../api';
+import { useI18n } from '../i18n';
 import { href } from '../router';
 
 /**
@@ -30,6 +31,7 @@ export function useProjectInvalidate(projectId: string) {
 }
 
 export function QueuePage({ projectId }: { projectId: string }) {
+  const { t } = useI18n();
   const admin = api.project(projectId);
   const queue = useQuery({ queryKey: keys.list(projectId, 'queue'), queryFn: () => admin.listQueue() });
 
@@ -55,15 +57,15 @@ export function QueuePage({ projectId }: { projectId: string }) {
     list.current?.querySelectorAll<HTMLElement>('article > .row > a')[Math.min(removed, now.length - 1)]?.focus();
   }, [ids]);
 
-  if (queue.isPending) return <p className="muted">Loading…</p>;
+  if (queue.isPending) return <p className="muted">{t.common.loading}</p>;
   if (queue.isError) return <ErrorMessage error={queue.error} retry={() => queue.refetch()} />;
   if (queue.data.items.length === 0) {
     return (
       <div className="empty">
         <h2 ref={empty} tabIndex={-1}>
-          All caught up
+          {t.queue.emptyTitle}
         </h2>
-        <p className="muted">New submissions that need approval appear here.</p>
+        <p className="muted">{t.queue.emptyHelp}</p>
       </div>
     );
   }
@@ -84,6 +86,7 @@ export function QueuePage({ projectId }: { projectId: string }) {
 }
 
 function QueueCard({ projectId, post, onModerated }: { projectId: string; post: Post; onModerated: () => void }) {
+  const { t, board, ago } = useI18n();
   const admin = api.project(projectId);
   const changed = usePostChanged(projectId);
   const [reason, setReason] = useState('');
@@ -110,7 +113,7 @@ function QueueCard({ projectId, post, onModerated }: { projectId: string; post: 
           <h3>{post.title}</h3>
         </a>
         <span className="muted small">
-          {authorName(post.author)} · {ago(post.createdAt)}
+          {authorName(post.author, board.post.anonymous)} · {ago(post.createdAt)}
           {post.category ? ` · ${post.category.name}` : ''}
         </span>
       </div>
@@ -121,8 +124,8 @@ function QueueCard({ projectId, post, onModerated }: { projectId: string; post: 
           <input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Reason shown to the author (optional)"
-            aria-label="Decline reason"
+            placeholder={t.queue.reasonPlaceholder}
+            aria-label={t.queue.reasonLabel}
             autoFocus
           />
           {/* aria-disabled, not disabled, while busy: disabling drops focus to <body> if it then fails. */}
@@ -132,10 +135,10 @@ function QueueCard({ projectId, post, onModerated }: { projectId: string; post: 
             onClick={() => !decline.isPending && decline.mutate()}
             aria-disabled={decline.isPending || undefined}
           >
-            Decline
+            {t.queue.decline}
           </button>
           <button type="button" className="ghost" onClick={() => setDeclining(false)}>
-            Cancel
+            {t.common.cancel}
           </button>
         </div>
       ) : (
@@ -146,10 +149,10 @@ function QueueCard({ projectId, post, onModerated }: { projectId: string; post: 
             onClick={() => !approve.isPending && approve.mutate()}
             aria-disabled={approve.isPending || undefined}
           >
-            Approve
+            {t.queue.approve}
           </button>
           <button ref={declineButton} type="button" onClick={() => setDeclining(true)}>
-            Decline…
+            {t.queue.declineMore}
           </button>
         </div>
       )}

@@ -2,10 +2,12 @@ import { FEEDBACK_EVENT_TYPES, type FeedbackEventType } from '@kobecuppens/feedb
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, keys } from '../api';
+import { useI18n } from '../i18n';
 import { ConfirmButton, ErrorMessage, SecretField } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 export function WebhooksPage({ projectId }: { projectId: string }) {
+  const { t } = useI18n();
   const admin = api.project(projectId);
   const invalidate = useProjectInvalidate(projectId);
   const hooks = useQuery({ queryKey: keys.webhooks(projectId), queryFn: () => admin.listWebhooks() });
@@ -23,26 +25,29 @@ export function WebhooksPage({ projectId }: { projectId: string }) {
   return (
     <div className="stack narrow">
       <p className="muted">
-        Events are POSTed as JSON with an <code>X-Feedback-Signature</code> header. Verify it with <code>verifyWebhook()</code> from{' '}
-        <code>@kobecuppens/feedback-core/server</code>, for example to send your own push notifications.
+        {t.webhooks.intro({
+          header: <code>X-Feedback-Signature</code>,
+          verify: <code>verifyWebhook()</code>,
+          pkg: <code>@kobecuppens/feedback-core/server</code>,
+        })}
       </p>
-      {hooks.isPending && <p className="muted">Loading…</p>}
+      {hooks.isPending && <p className="muted">{t.common.loading}</p>}
       <ErrorMessage error={hooks.error} retry={() => hooks.refetch()} />
-      {hooks.isSuccess && hooks.data.length === 0 && <p className="muted">No webhooks yet.</p>}
+      {hooks.isSuccess && hooks.data.length === 0 && <p className="muted">{t.webhooks.empty}</p>}
       <ErrorMessage error={remove.error} />
       {hooks.data?.map((h) => (
         <article key={h.id} className="card stack">
           <div className="row between">
             <strong className="mono">{h.url}</strong>
             <ConfirmButton
-              label="Delete"
-              question="Delete this webhook?"
+              label={t.common.delete}
+              question={t.webhooks.deleteQuestion}
               pending={remove.isPending}
               onConfirm={() => remove.mutate(h.id)}
             />
           </div>
           <span className="muted small">{h.events.join(', ')}</span>
-          <SecretField label="Signing secret" value={h.secret} />
+          <SecretField label={t.webhooks.signingSecret} value={h.secret} />
         </article>
       ))}
       <form
@@ -52,17 +57,17 @@ export function WebhooksPage({ projectId }: { projectId: string }) {
           create.mutate();
         }}
       >
-        <h3>Add endpoint</h3>
+        <h3>{t.webhooks.addEndpoint}</h3>
         <input
           type="url"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://api.yourapp.com/feedback-webhook"
-          aria-label="Webhook URL"
+          aria-label={t.webhooks.urlLabel}
           required
         />
         <fieldset className="checks">
-          <legend>Events</legend>
+          <legend>{t.webhooks.events}</legend>
           {FEEDBACK_EVENT_TYPES.map((type) => (
             <label key={type} className="check">
               <input
@@ -75,7 +80,7 @@ export function WebhooksPage({ projectId }: { projectId: string }) {
           ))}
         </fieldset>
         <button type="submit" className="primary" disabled={!url || events.length === 0 || create.isPending}>
-          Add webhook
+          {t.webhooks.addWebhook}
         </button>
         <ErrorMessage error={create.error} />
       </form>

@@ -42,6 +42,11 @@ export interface HostedAdapterOptions {
   fetch?: typeof fetch;
   /** Abort requests after this many ms (default 20s) so a stalled connection cannot spin forever. */
   timeoutMs?: number;
+  /**
+   * The user's language, sent with each request so emails about their posts are written in it.
+   * A function is read per request, so a language change needs no new adapter.
+   */
+  locale?: string | (() => string | null | undefined);
 }
 
 const ANON_KEY = 'rnf:anon-id';
@@ -124,6 +129,8 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
       'X-Feedback-Key': options.projectKey,
       ...(await identityHeaders()),
     };
+    const locale = typeof options.locale === 'function' ? options.locale() : options.locale;
+    if (locale) headers['X-Feedback-Locale'] = locale;
     let payload: BodyInit | undefined;
     if (body instanceof FormData) payload = body;
     else if (body !== undefined) {

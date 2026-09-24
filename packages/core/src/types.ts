@@ -84,6 +84,8 @@ export interface ProjectSettings {
   roadmapEnabled: boolean;
   notifySubmitter: boolean;
   adminEmail: string | null;
+  /** Language of the new-post emails to the team (a built-in locale code). */
+  emailLocale: string;
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
@@ -97,6 +99,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   roadmapEnabled: true,
   notifySubmitter: true,
   adminEmail: null,
+  emailLocale: 'en',
 };
 
 /** What the widget may render for the current viewer, resolved by the server. */

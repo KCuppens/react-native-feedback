@@ -1,4 +1,5 @@
-import { FEEDBACK_EVENT_TYPES, locales, type FeedbackEventType, type WebhookConfig } from '@kobecuppens/feedback-core';
+import { FEEDBACK_EVENT_TYPES, type FeedbackEventType, type WebhookConfig } from '@kobecuppens/feedback-core';
+import { emailStrings } from './emailStrings';
 import { signWebhook } from '@kobecuppens/feedback-core/server';
 import type { EndUserRow, Env, EventMessage, WebhookRow } from './env';
 import { getPost, publicPost, type PostRecord } from './posts';
@@ -220,7 +221,7 @@ export function toWebhookConfig(row: Omit<WebhookRow, 'project_id'>): WebhookCon
 
 interface EmailContext {
   type: FeedbackEventType;
-  project: { id: string; name: string; settings: { adminEmail: string | null; notifySubmitter: boolean } };
+  project: { id: string; name: string; settings: { adminEmail: string | null; notifySubmitter: boolean; emailLocale: string } };
   post: PostRecord | null;
   author: EndUserRow | null;
   actorId: string | null;
@@ -245,33 +246,39 @@ function moderatorEmail(env: Env, ctx: EmailContext, post: PostRecord): EmailMes
   const to = ctx.project.settings.adminEmail ?? env.ADMIN_EMAIL;
   if (post.moderation !== 'pending' || !to) return null;
   const link = `${ctx.origin}/admin/#/projects/${ctx.project.id}/queue`;
+  const t = emailStrings(ctx.project.settings.emailLocale);
   return {
     to,
-    subject: `[${ctx.project.name}] New feedback to review: ${post.title}`,
-    text: `${post.title}\n\n${post.body}\n\nReview it: ${link}`,
-    html: `<h2>${escapeHtml(post.title)}</h2><p style="white-space:pre-wrap">${escapeHtml(post.body)}</p><p><a href="${escapeHtml(link)}">Review in the dashboard</a></p>`,
+    subject: `[${ctx.project.name}] ${t.reviewSubject(post.title)}`,
+    text: `${post.title}\n\n${post.body}\n\n${t.reviewLink}: ${link}`,
+    html: `<h2>${escapeHtml(post.title)}</h2><p style="white-space:pre-wrap">${escapeHtml(post.body)}</p><p><a href="${escapeHtml(link)}">${escapeHtml(t.reviewLink)}</a></p>`,
   };
 }
 
-const SUBMITTER_HEADLINES: Partial<Record<FeedbackEventType, (post: PostRecord) => string | null>> = {
-  'post.approved': () => 'Your feedback is now public',
-  'post.declined': () => 'Your feedback was declined',
-  'post.status_changed': (post) => (post.moderation === 'approved' ? `Your feedback is now "${locales.en.status[post.status]}"` : null),
+type Strings = ReturnType<typeof emailStrings>;
+
+const SUBMITTER_HEADLINES: Partial<Record<FeedbackEventType, (post: PostRecord, t: Strings) => string | null>> = {
+  'post.approved': (_post, t) => t.approved,
+  'post.declined': (_post, t) => t.declined,
+  'post.status_changed': (post, t) => (post.moderation === 'approved' ? t.statusChanged(t.status[post.status]) : null),
 };
 
 /** Tell the author what happened to their post, unless they did it themselves or opted out. */
 function submitterEmail(ctx: EmailContext, post: PostRecord): EmailMessage | null {
   const author = ctx.author;
   if (!ctx.project.settings.notifySubmitter || !author?.email || author.id === ctx.actorId) return null;
-  const headline = SUBMITTER_HEADLINES[ctx.type]?.(post);
+  // Written in the language the author's app last used.
+  const t = emailStrings(author.locale);
+  const headline = SUBMITTER_HEADLINES[ctx.type]?.(post, t);
   if (!headline) return null;
   const reason = ctx.type === 'post.declined' ? post.declineReason : null;
+  const thanks = t.thanks(ctx.project.name);
   return {
     to: author.email,
     subject: `[${ctx.project.name}] ${headline}`,
-    text: `${headline}: "${post.title}".${reason ? `\n\nReason: ${reason}` : ''}\n\nThanks for helping improve ${ctx.project.name}!`,
-    html: `<p>${escapeHtml(headline)}: <strong>${escapeHtml(post.title)}</strong>.</p>${
-      reason ? `<p>Reason: ${escapeHtml(reason)}</p>` : ''
-    }<p>Thanks for helping improve ${escapeHtml(ctx.project.name)}!</p>`,
+    text: `${headline}\n\n${post.title}${reason ? `\n\n${t.reason(reason)}` : ''}\n\n${thanks}`,
+    html: `<p>${escapeHtml(headline)}</p><p><strong>${escapeHtml(post.title)}</strong></p>${
+      reason ? `<p>${escapeHtml(t.reason(reason))}</p>` : ''
+    }<p>${escapeHtml(thanks)}</p>`,
   };
 }
