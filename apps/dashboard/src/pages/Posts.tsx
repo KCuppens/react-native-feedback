@@ -1,26 +1,19 @@
-import { formatRelativeTime, locales, POST_STATUSES, type PostStatus } from '@kobecuppens/feedback-core';
+import type { PostStatus } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, keys } from '../api';
 import { href } from '../router';
-import { STATUS_LABELS, StatusBadge, ErrorMessage } from '../ui';
+import { ago, authorName, ErrorMessage, type ModerationFilter, StatusBadge, StatusOptions, useDebouncedValue } from '../ui';
 import { usePostChanged } from './Queue';
-
-type Moderation = 'all' | 'pending' | 'approved' | 'declined';
 
 export function PostsPage({ projectId }: { projectId: string }) {
   const admin = api.project(projectId);
   const changed = usePostChanged(projectId);
-  const [moderation, setModeration] = useState<Moderation>('all');
+  const [moderation, setModeration] = useState<ModerationFilter>('all');
   const [status, setStatus] = useState<PostStatus | ''>('');
   const [search, setSearch] = useState('');
-  const [q, setQ] = useState('');
+  const q = useDebouncedValue(search.trim(), 300);
   const [page, setPage] = useState<string | null>(null);
-
-  useEffect(() => {
-    const id = setTimeout(() => setQ(search.trim()), 300);
-    return () => clearTimeout(id);
-  }, [search]);
   // Intentional dependencies: the filters are the trigger: any change returns to the first page
   useEffect(() => setPage(null), [moderation, status, q]);
 
@@ -42,7 +35,7 @@ export function PostsPage({ projectId }: { projectId: string }) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <select value={moderation} onChange={(e) => setModeration(e.target.value as Moderation)} aria-label="Moderation">
+        <select value={moderation} onChange={(e) => setModeration(e.target.value as ModerationFilter)} aria-label="Moderation">
           <option value="all">Any moderation</option>
           <option value="pending">Pending</option>
           <option value="approved">Approved</option>
@@ -50,11 +43,7 @@ export function PostsPage({ projectId }: { projectId: string }) {
         </select>
         <select value={status} onChange={(e) => setStatus(e.target.value as PostStatus | '')} aria-label="Status">
           <option value="">Any status</option>
-          {POST_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABELS[s]}
-            </option>
-          ))}
+          <StatusOptions />
         </select>
       </div>
       <ErrorMessage error={update.error} />
@@ -83,7 +72,7 @@ export function PostsPage({ projectId }: { projectId: string }) {
                 <tr key={post.id}>
                   <td>
                     <a href={href(projectId, 'posts', post.id)}>{post.title}</a>
-                    <div className="muted small">{post.author.name ?? 'Anonymous'}</div>
+                    <div className="muted small">{authorName(post.author)}</div>
                   </td>
                   <td className="num">
                     {post.score}
@@ -102,11 +91,7 @@ export function PostsPage({ projectId }: { projectId: string }) {
                       aria-label={`Status of ${post.title}`}
                       onChange={(e) => update.mutate({ id: post.id, patch: { status: e.target.value as PostStatus } })}
                     >
-                      {POST_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {STATUS_LABELS[s]}
-                        </option>
-                      ))}
+                      <StatusOptions />
                     </select>
                   </td>
                   <td>
@@ -123,7 +108,7 @@ export function PostsPage({ projectId }: { projectId: string }) {
                       ))}
                     </select>
                   </td>
-                  <td className="muted small">{formatRelativeTime(locales.en, post.createdAt)}</td>
+                  <td className="muted small">{ago(post.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

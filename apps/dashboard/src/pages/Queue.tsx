@@ -1,7 +1,7 @@
-import { formatRelativeTime, locales, type Post } from '@kobecuppens/feedback-core';
+import type { Post } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { ErrorMessage } from '../ui';
+import { ago, authorName, ErrorMessage, Thumbs } from '../ui';
 import { api, latestError, keys } from '../api';
 import { href } from '../router';
 
@@ -110,20 +110,12 @@ function QueueCard({ projectId, post, onModerated }: { projectId: string; post: 
           <h3>{post.title}</h3>
         </a>
         <span className="muted small">
-          {post.author.name ?? 'Anonymous'} · {formatRelativeTime(locales.en, post.createdAt)}
+          {authorName(post.author)} · {ago(post.createdAt)}
           {post.category ? ` · ${post.category.name}` : ''}
         </span>
       </div>
       {post.body && <p className="body">{post.body}</p>}
-      {post.attachments.length > 0 && (
-        <div className="thumbs">
-          {post.attachments.map((a, i) => (
-            <a key={a.id} href={a.url} target="_blank" rel="noreferrer" aria-label={`Attachment ${i + 1} (opens in a new tab)`}>
-              <img src={a.url} alt="" />
-            </a>
-          ))}
-        </div>
-      )}
+      <Thumbs attachments={post.attachments} />
       {declining ? (
         <div className="row">
           <input

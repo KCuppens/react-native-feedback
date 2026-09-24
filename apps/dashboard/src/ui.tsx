@@ -1,8 +1,61 @@
-import { locales, type Post } from '@kobecuppens/feedback-core';
+import {
+  formatRelativeTime,
+  locales,
+  POST_STATUSES,
+  type Attachment,
+  type Moderation,
+  type Post,
+  type PostStatus,
+} from '@kobecuppens/feedback-core';
 import { errorText } from './api';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 export const STATUS_LABELS = locales.en.status;
+
+/** The posts list filter: one moderation state, or all of them. */
+export type ModerationFilter = Moderation | 'all';
+
+/** "3 hours ago", in the dashboard's (English) locale. */
+export const ago = (timestamp: number) => formatRelativeTime(locales.en, timestamp);
+
+export const authorName = (author: { name: string | null }, fallback = 'Anonymous') => author.name ?? fallback;
+
+/** `value`, but only once it has stopped changing for `ms` (e.g. a search box). */
+export function useDebouncedValue<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return settled;
+}
+
+/** Options for a status <select>. */
+export function StatusOptions({ statuses = POST_STATUSES }: { statuses?: readonly PostStatus[] }) {
+  return (
+    <>
+      {statuses.map((s) => (
+        <option key={s} value={s}>
+          {STATUS_LABELS[s]}
+        </option>
+      ))}
+    </>
+  );
+}
+
+/** Attachment thumbnails that open the full image in a new tab. */
+export function Thumbs({ attachments }: { attachments: Attachment[] }) {
+  if (attachments.length === 0) return null;
+  return (
+    <div className="thumbs">
+      {attachments.map((a, i) => (
+        <a key={a.id} href={a.url} target="_blank" rel="noreferrer" aria-label={`Attachment ${i + 1} (opens in a new tab)`}>
+          <img src={a.url} alt="" />
+        </a>
+      ))}
+    </div>
+  );
+}
 
 /** An announced error line, with an optional retry for failed loads. */
 export function ErrorMessage({ error, retry }: { error: unknown; retry?: () => unknown }) {

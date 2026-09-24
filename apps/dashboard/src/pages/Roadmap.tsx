@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { api, keys } from '../api';
 import { href } from '../router';
 import { usePostChanged } from './Queue';
-import { STATUS_LABELS, ErrorMessage } from '../ui';
+import { STATUS_LABELS, ErrorMessage, StatusOptions } from '../ui';
 
 const COLUMNS: PostStatus[] = ['open', 'under_review', 'planned', 'in_progress', 'done'];
 const PER_COLUMN = 100;
@@ -102,11 +102,7 @@ export function RoadmapPage({ projectId }: { projectId: string }) {
                       aria-label={`Move ${post.title}`}
                       onChange={(e) => move.mutate({ id: post.id, status: e.target.value as PostStatus })}
                     >
-                      {COLUMNS.map((s) => (
-                        <option key={s} value={s}>
-                          {STATUS_LABELS[s]}
-                        </option>
-                      ))}
+                      <StatusOptions statuses={COLUMNS} />
                     </select>
                   </div>
                 </article>
