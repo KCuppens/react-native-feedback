@@ -159,7 +159,7 @@ export const en: FeedbackStrings = {
     successPublished: 'Thanks! Your post is live.',
     cancel: 'Cancel',
     done: 'Done',
-    draftKept: 'Draft kept. Use Back to discard it.',
+    draftKept: 'Draft kept. Use Cancel to discard it.',
     tooLong: (max) => `Keep it under ${max} characters.`,
     required: 'Required',
   },

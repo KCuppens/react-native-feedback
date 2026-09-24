@@ -161,9 +161,23 @@ describe('accessibility and resilience', () => {
     expect(screen.getByLabelText('Title')).toBe(title);
     // Marked as handled, so a host dialog around the board does not close and lose it either.
     expect(fireEvent.keyDown(title, { key: 'Escape' })).toBe(false);
-    expect(screen.getByRole('status', { name: '' }).textContent).toBe('Draft kept. Use Back to discard it.');
+    expect(screen.getByRole('status', { name: '' }).textContent).toBe('Draft kept. Use Cancel to discard it.');
     expect(host).not.toHaveBeenCalled();
     expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+
+    // A capture-phase host dialog (Radix) that already blocked Escape: still announced, anew.
+    const status = screen.getByRole('status', { name: '' });
+    const before = status.firstChild;
+    const block = (e: KeyboardEvent) => e.preventDefault();
+    document.addEventListener('keydown', block, true);
+    try {
+      fireEvent.keyDown(title, { key: 'Escape' });
+    } finally {
+      document.removeEventListener('keydown', block, true);
+    }
+    expect(status.firstChild).not.toBe(before);
+    expect(status.textContent).toBe('Draft kept. Use Cancel to discard it.');
+    expect(screen.getByLabelText('Title')).toBe(title);
   });
 
   it('keeps focus on a busy button so a failed request does not lose the user', async () => {

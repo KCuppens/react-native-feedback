@@ -62,7 +62,7 @@ export const fr: FeedbackStrings = {
     successPublished: 'Merci ! Votre suggestion est en ligne.',
     cancel: 'Annuler',
     done: 'Terminé',
-    draftKept: 'Brouillon conservé. Utilisez Retour pour le supprimer.',
+    draftKept: 'Brouillon conservé. Utilisez Annuler pour le supprimer.',
     tooLong: (max) => `${max} caractères maximum.`,
     required: 'Obligatoire',
   },

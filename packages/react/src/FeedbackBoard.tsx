@@ -208,18 +208,21 @@ function BoardNavigator({
   const draftDirty = useRef(false);
   const reportDirty = useRef(onDirtyChange);
   reportDirty.current = onDirtyChange;
-  const [draftNotice, setDraftNotice] = useState('');
+  const [draftNotice, setDraftNotice] = useState({ text: '', count: 0 });
   const onScreenKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (e.key !== 'Escape') return;
+    // Checked before defaultPrevented: a capture-phase host dialog (e.g. Radix, via
+    // onDirtyChange) may already have blocked this Escape, and the user still needs to hear why.
     if (route.name === 'submit' && draftDirty.current) {
       // Handled: the draft stays. This also stops bubble-phase host dialogs that respect
-      // defaultPrevented or React propagation; capture-phase ones (e.g. Radix) need
-      // onDirtyChange to block their own Escape.
+      // defaultPrevented or React propagation.
       e.preventDefault();
       e.stopPropagation();
-      setDraftNotice(strings.submit.draftKept);
+      // A new count each time, so repeated presses change the live region and are announced again.
+      setDraftNotice((notice) => ({ text: strings.submit.draftKept, count: notice.count + 1 }));
       return;
     }
+    if (e.defaultPrevented) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     e.preventDefault();
     pop();
@@ -251,7 +254,7 @@ function BoardNavigator({
         >
           {/* Escape on a kept draft does nothing visible: say why, and how to leave. */}
           <div role="status" style={srOnly}>
-            {draftNotice}
+            <span key={draftNotice.count}>{draftNotice.text}</span>
           </div>
           {route.name === 'post' && <FeedbackDetail key={route.id} postId={route.id} initialPost={route.initial} onBack={pop} />}
           {route.name === 'submit' && (
@@ -261,7 +264,7 @@ function BoardNavigator({
               onDirtyChange={(dirty) => {
                 draftDirty.current = dirty;
                 reportDirty.current?.(dirty);
-                if (!dirty) setDraftNotice('');
+                if (!dirty) setDraftNotice((notice) => ({ ...notice, text: '' }));
               }}
             />
           )}
