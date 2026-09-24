@@ -189,6 +189,8 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
             onChange={(e) => setReason(e.target.value)}
             placeholder={strings.admin.declineReasonPlaceholder}
             aria-label={strings.admin.declineReasonPlaceholder}
+            // Focus follows the Decline button this field replaces.
+            autoFocus
           />
           <div {...slot('adminRow')}>
             <Button

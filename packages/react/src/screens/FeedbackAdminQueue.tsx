@@ -27,11 +27,15 @@ export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) =>
       <ul {...slot('list')}>
         {posts.map((post) => (
           <li key={post.id} className={slot('card').className} style={{ flexDirection: 'column', ...slot('card').style }}>
-            <button type="button" {...slot('cardBody')} onClick={() => onOpenPost(post)}>
-              <h3 {...slot('cardTitle')}>{post.title}</h3>
+            <div {...slot('cardBody')}>
+              <h3 {...slot('cardTitle')}>
+                <button type="button" {...slot('cardLink')} onClick={() => onOpenPost(post)}>
+                  {post.title}
+                </button>
+              </h3>
               {post.body && <p {...slot('cardExcerpt')}>{post.body}</p>}
               <span {...slot('cardMetaText')}>{strings.post.by(post.author.name ?? strings.post.anonymous)}</span>
-            </button>
+            </div>
             {declining === post.id ? (
               <>
                 <input
@@ -40,6 +44,8 @@ export function FeedbackAdminQueue({ onOpenPost }: { onOpenPost: (post: Post) =>
                   onChange={(e) => setReason(e.target.value)}
                   placeholder={strings.admin.declineReasonPlaceholder}
                   aria-label={strings.admin.declineReasonPlaceholder}
+                  // Focus follows the Decline button this field replaces.
+                  autoFocus
                 />
                 <div {...slot('adminRow')}>
                   <Button

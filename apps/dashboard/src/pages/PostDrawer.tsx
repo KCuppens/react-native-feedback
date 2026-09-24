@@ -1,8 +1,8 @@
 import { formatRelativeTime, locales, POST_STATUSES, type PostStatus } from '@kobecuppens/feedback-core';
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
-import { api, errorText } from '../api';
-import { ConfirmButton, STATUS_LABELS, StatusBadge, useDialogFocus } from '../ui';
+import { useEffect, useState } from 'react';
+import { api, latestError } from '../api';
+import { ConfirmButton, STATUS_LABELS, StatusBadge, useDialogFocus, ErrorMessage } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 export function PostDrawer({ projectId, postId, onClose }: { projectId: string; postId: string; onClose: () => void }) {
@@ -18,15 +18,22 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
   const commentList = comments.data?.pages.flatMap((page) => page.items) ?? [];
   const [reply, setReply] = useState('');
   const [mergeTarget, setMergeTarget] = useState('');
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
   const [mergeSearch, setMergeSearch] = useState('');
+  const [mergeQuery, setMergeQuery] = useState('');
+  const [mergeOpen, setMergeOpen] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setMergeQuery(mergeSearch.trim()), 300);
+    return () => clearTimeout(id);
+  }, [mergeSearch]);
 
-  // Searchable, so low-voted duplicates beyond the top 100 can still be picked.
+  // Searchable, so low-voted duplicates beyond the top 100 can still be picked. Loaded only
+  // once the admin reaches for the merge control, and debounced like the posts search.
   const mergeCandidates = useQuery({
-    queryKey: ['p', projectId, 'merge-candidates', mergeSearch.trim()],
-    queryFn: async () =>
-      (await admin.listPosts({ moderation: 'approved', sort: 'top', limit: 100, q: mergeSearch.trim() || undefined })).items,
+    queryKey: ['merge-candidates', projectId, mergeQuery],
+    queryFn: async () => (await admin.listPosts({ moderation: 'approved', sort: 'top', limit: 100, q: mergeQuery || undefined })).items,
+    enabled: mergeOpen,
+    staleTime: 60_000,
   });
 
   const run = <T,>(fn: () => Promise<T>) => ({ mutationFn: fn, onSuccess: invalidate });
@@ -58,7 +65,8 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
 
   const dialog = useDialogFocus<HTMLElement>(onClose);
 
-  const error = [approve, decline, setStatus, sendReply, removeComment, merge, remove].find((m) => m.isError)?.error;
+  // Reply errors show next to the reply form; everything else next to the moderation panel.
+  const error = latestError(approve, decline, setStatus, removeComment, merge, remove);
   const p = post.data;
 
   return (
@@ -73,7 +81,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
         {post.isPending ? (
           <p className="muted">Loading…</p>
         ) : post.isError ? (
-          <p className="error">{errorText(post.error)}</p>
+          <ErrorMessage error={post.error} retry={() => post.refetch()} />
         ) : (
           p && (
             <div className="stack">
@@ -136,8 +144,14 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                       onChange={(e) => setMergeSearch(e.target.value)}
                       placeholder="Find duplicate target…"
                       aria-label="Search merge target"
+                      onFocus={() => setMergeOpen(true)}
                     />
-                    <select value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)} aria-label="Merge into">
+                    <select
+                      value={mergeTarget}
+                      onChange={(e) => setMergeTarget(e.target.value)}
+                      aria-label="Merge into"
+                      onFocus={() => setMergeOpen(true)}
+                    >
                       <option value="">Merge into…</option>
                       {mergeCandidates.data
                         ?.filter((c) => c.id !== p.id)
@@ -152,28 +166,20 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                     </button>
                   </div>
                 )}
-                {confirmDelete ? (
-                  <div className="row">
-                    <span className="error">Delete permanently, including votes, comments and images?</span>
-                    <button type="button" className="danger" onClick={() => remove.mutate()} disabled={remove.isPending}>
-                      Delete
-                    </button>
-                    <button type="button" className="ghost" onClick={() => setConfirmDelete(false)}>
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button type="button" className="ghost danger-text" onClick={() => setConfirmDelete(true)}>
-                    Delete post…
-                  </button>
-                )}
+                <ConfirmButton
+                  label="Delete post…"
+                  question="Delete permanently, including votes, comments and images?"
+                  confirmLabel="Delete"
+                  pending={remove.isPending}
+                  onConfirm={() => remove.mutate()}
+                />
               </section>
 
-              {error && <p className="error">{errorText(error)}</p>}
+              <ErrorMessage error={error} />
 
               <h3>Comments</h3>
               {comments.isPending && <p className="muted">Loading comments…</p>}
-              {comments.isError && <p className="error">{errorText(comments.error)}</p>}
+              <ErrorMessage error={comments.error} />
               {comments.isSuccess && commentList.length === 0 && <p className="muted">No comments yet.</p>}
               <ul className="comments">
                 {commentList.map((c) => (
@@ -220,6 +226,7 @@ export function PostDrawer({ projectId, postId, onClose }: { projectId: string; 
                 <button type="submit" className="primary" disabled={!reply.trim() || sendReply.isPending}>
                   Reply as team
                 </button>
+                <ErrorMessage error={sendReply.error} />
               </form>
             </div>
           )

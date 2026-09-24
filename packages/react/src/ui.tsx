@@ -1,4 +1,4 @@
-import { useFeedbackContext } from '@kobecuppens/feedback-core/react';
+import { useFeedbackContext, useStableValue } from '@kobecuppens/feedback-core/react';
 import type { FeedbackStrings, FeedbackTheme, Post, PostStatus } from '@kobecuppens/feedback-core';
 import { createContext, useContext, useMemo, type ComponentType, type CSSProperties, type ReactNode } from 'react';
 
@@ -149,15 +149,19 @@ interface DomUIValue extends Required<Omit<DomUIOptions, 'classNames' | 'styles'
 const DomUIContext = createContext<DomUIValue | null>(null);
 
 export function DomUIProvider({ options, children }: { options: DomUIOptions; children: ReactNode }) {
+  // Inline objects are the common case; compare by content so cards stay memoized.
+  const classNames = useStableValue(options.classNames);
+  const styles = useStableValue(options.styles);
+  const components = useStableValue(options.components);
   const value = useMemo<DomUIValue>(
     () => ({
-      classNames: options.classNames ?? {},
-      styles: options.styles ?? {},
-      components: options.components ?? {},
+      classNames: classNames ?? {},
+      styles: styles ?? {},
+      components: components ?? {},
       unstyled: !!options.unstyled,
       hideHeader: !!options.hideHeader,
     }),
-    [options.classNames, options.styles, options.components, options.unstyled, options.hideHeader],
+    [classNames, styles, components, options.unstyled, options.hideHeader],
   );
   return <DomUIContext.Provider value={value}>{children}</DomUIContext.Provider>;
 }

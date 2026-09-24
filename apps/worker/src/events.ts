@@ -3,7 +3,7 @@ import { signWebhook } from '@kobecuppens/feedback-core/server';
 import type { EndUserRow, Env, EventMessage } from './env';
 import { getPost, publicPost, type PostRecord } from './posts';
 import { findProjectById } from './projects';
-import { escapeHtml, flag, newId, now } from './util';
+import { escapeHtml, flag, log, newId, now } from './util';
 
 export interface EventInput {
   projectId: string;
@@ -38,11 +38,26 @@ export interface PendingEvent {
  * the change, so the change and its event commit (or fail) together, then call
  * `dispatchEvent` once the batch has committed.
  */
-export function prepareEvent(env: Env, input: EventInput): PendingEvent {
+export function prepareEvent(env: Env, input: EventInput, onlyIf?: { sql: string; params: (string | number)[] }): PendingEvent {
   const id = newId();
-  const statement = env.DB.prepare(
-    'INSERT INTO events (id, project_id, type, post_id, actor_id, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  ).bind(id, input.projectId, input.type, input.postId, input.actorId, JSON.stringify({ origin: input.origin, ...input.data }), now());
+  const values = [
+    id,
+    input.projectId,
+    input.type,
+    input.postId,
+    input.actorId,
+    JSON.stringify({ origin: input.origin, ...input.data }),
+    now(),
+  ];
+  // `onlyIf` makes the row conditional on the batch's own change having taken effect,
+  // so a concurrent duplicate request cannot record (and notify) the same change twice.
+  const statement = onlyIf
+    ? env.DB.prepare(
+        `INSERT INTO events (id, project_id, type, post_id, actor_id, payload, created_at) SELECT ?, ?, ?, ?, ?, ?, ? WHERE ${onlyIf.sql}`,
+      ).bind(...values, ...onlyIf.params)
+    : env.DB.prepare('INSERT INTO events (id, project_id, type, post_id, actor_id, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(
+        ...values,
+      );
   return { id, statement };
 }
 
@@ -57,11 +72,11 @@ export async function dispatchEvent(env: Env, ctx: { waitUntil(promise: Promise<
     } catch (error) {
       // The change is already committed and the outbox row is stored: the hourly
       // sweep (maintenance.ts) delivers it. Failing the request would invite duplicates.
-      console.error(JSON.stringify({ msg: 'event enqueue failed', eventId: id, error: String(error) }));
+      log('error', 'event enqueue failed', { eventId: id, error: String(error) });
     }
   } else {
     const work = processEvent(env, id).catch((error: unknown) =>
-      console.error(JSON.stringify({ msg: 'event processing failed', eventId: id, error: String(error) })),
+      log('error', 'event processing failed', { eventId: id, error: String(error) }),
     );
     if (ctx) ctx.waitUntil(work);
     else await work;
@@ -81,7 +96,7 @@ export async function handleEventBatch(batch: MessageBatch<EventMessage>, env: E
         await processEvent(env, message.body.eventId);
         message.ack();
       } catch (error) {
-        console.error(JSON.stringify({ msg: 'event processing failed', eventId: message.body.eventId, error: String(error) }));
+        log('error', 'event processing failed', { eventId: message.body.eventId, error: String(error) });
         message.retry({ delaySeconds: retryDelaySeconds(message.attempts ?? 1) });
       }
     }),
@@ -120,7 +135,7 @@ export async function processEvent(env: Env, eventId: string): Promise<void> {
   });
 
   const [hooks, mail] = await Promise.allSettled([
-    deliverWebhooks(env, project.id, event.type, body),
+    deliverWebhooks(env, { eventId, projectId: project.id, type: event.type }, body),
     sendEmails(env, { type: event.type, project, post, author, actorId: event.actor_id, extra, origin }),
   ]);
   // Delivery is at-most-once (the event is already claimed), so a failure here is final: log it.
@@ -129,16 +144,7 @@ export async function processEvent(env: Env, eventId: string): Promise<void> {
     ['email', mail],
   ] as const) {
     if (result.status === 'rejected') {
-      console.error(
-        JSON.stringify({
-          msg: 'event delivery failed',
-          channel,
-          eventId,
-          type: event.type,
-          projectId: project.id,
-          error: String(result.reason),
-        }),
-      );
+      log('error', 'event delivery failed', { channel, eventId, type: event.type, projectId: project.id, error: String(result.reason) });
     }
   }
 }
@@ -155,7 +161,11 @@ function parseEventTypes(raw: string): FeedbackEventType[] {
   }
 }
 
-async function deliverWebhooks(env: Env, projectId: string, type: FeedbackEventType, body: string): Promise<void> {
+async function deliverWebhooks(
+  env: Env,
+  { eventId, projectId, type }: { eventId: string; projectId: string; type: FeedbackEventType },
+  body: string,
+): Promise<void> {
   const { results } = await env.DB.prepare('SELECT * FROM webhooks WHERE project_id = ?')
     .bind(projectId)
     .all<{ id: string; url: string; secret: string; events: string }>();
@@ -176,10 +186,10 @@ async function deliverWebhooks(env: Env, projectId: string, type: FeedbackEventT
             signal: AbortSignal.timeout(10_000),
           });
           if (res.ok) return;
-          console.warn(JSON.stringify({ msg: 'webhook non-2xx', hookId: hook.id, status: res.status }));
+          log('warn', 'webhook non-2xx', { eventId, projectId, type, hookId: hook.id, attempt, status: res.status });
           if (!isRetryableStatus(res.status)) return;
         } catch (error) {
-          console.warn(JSON.stringify({ msg: 'webhook failed', hookId: hook.id, error: String(error) }));
+          log('warn', 'webhook failed', { eventId, projectId, type, hookId: hook.id, attempt, error: String(error) });
         }
         if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000));
       }

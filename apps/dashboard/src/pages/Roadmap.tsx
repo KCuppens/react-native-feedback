@@ -1,9 +1,9 @@
 import type { Post, PostStatus } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, errorText } from '../api';
+import { api } from '../api';
 import { href } from '../router';
-import { STATUS_LABELS } from '../ui';
+import { STATUS_LABELS, ErrorMessage } from '../ui';
 
 const COLUMNS: PostStatus[] = ['open', 'under_review', 'planned', 'in_progress', 'done'];
 const PER_COLUMN = 100;
@@ -50,11 +50,11 @@ export function RoadmapPage({ projectId }: { projectId: string }) {
   });
 
   if (posts.isPending) return <p className="muted">Loading…</p>;
-  if (posts.isError) return <p className="error">{errorText(posts.error)}</p>;
+  if (posts.isError) return <ErrorMessage error={posts.error} retry={() => posts.refetch()} />;
 
   return (
     <>
-      {move.isError && <p className="error">{errorText(move.error)}</p>}
+      <ErrorMessage error={move.error} />
       <div className="kanban">
         {COLUMNS.map((status) => {
           const items = posts.data.items.filter((p) => p.status === status);

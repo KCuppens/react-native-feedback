@@ -7,7 +7,7 @@ import { findProjectBySlug } from './projects';
 import { adminRoutes } from './routes/admin';
 import { dashboardRoutes } from './routes/dashboard';
 import { publicRoutes } from './routes/public';
-import { ctxOf, fail, flag } from './util';
+import { ctxOf, fail, flag, log } from './util';
 
 export const app = new Hono<AppEnv>();
 
@@ -64,7 +64,8 @@ app.get('/v1/files/:id', async (c) => {
   if (!object) fail(404, 'not_found');
   const headers = {
     'Content-Type': row.mime,
-    'Cache-Control': 'public, max-age=31536000, immutable',
+    // A day in browsers; the edge copy below lives an hour, so deleted images stop loading soon.
+    'Cache-Control': 'public, max-age=86400',
     'X-Content-Type-Options': 'nosniff',
     'Access-Control-Allow-Origin': '*',
     ...(object.httpEtag ? { ETag: object.httpEtag } : {}),
@@ -72,7 +73,9 @@ app.get('/v1/files/:id', async (c) => {
   if (object.httpEtag && c.req.header('If-None-Match') === object.httpEtag) return new Response(null, { status: 304, headers });
   const res = new Response(object.body, { headers });
   if (edge) {
-    const put = edge.put(c.req.raw, res.clone()).catch(() => undefined);
+    const edgeCopy = new Response(res.clone().body, res);
+    edgeCopy.headers.set('Cache-Control', 'public, max-age=3600');
+    const put = edge.put(c.req.raw, edgeCopy).catch(() => undefined);
     const ctx = ctxOf(c);
     if (ctx) ctx.waitUntil(put);
   }
@@ -138,18 +141,14 @@ app.onError((err, c) => {
     return new Response(res.body, { status: res.status, headers });
   }
   const requestId = c.get('requestId');
-  console.error(
-    JSON.stringify({
-      level: 'error',
-      msg: 'unhandled error',
-      requestId,
-      method: c.req.method,
-      path: c.req.path,
-      projectId: c.get('project')?.id,
-      error: String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-    }),
-  );
+  log('error', 'unhandled error', {
+    requestId,
+    method: c.req.method,
+    path: c.req.path,
+    projectId: c.get('project')?.id,
+    error: String(err),
+    stack: err instanceof Error ? err.stack : undefined,
+  });
   return c.json(
     { error: 'internal_error', message: 'Something went wrong', requestId },
     500,

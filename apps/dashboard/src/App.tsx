@@ -1,7 +1,7 @@
 import type { ProjectSecrets, ProjectSummary } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, errorText, isUnauthorized } from './api';
+import { api, isUnauthorized } from './api';
 import { CategoriesPage } from './pages/Categories';
 import { PostDrawer } from './pages/PostDrawer';
 import { PostsPage } from './pages/Posts';
@@ -10,12 +10,21 @@ import { RoadmapPage } from './pages/Roadmap';
 import { SettingsPage } from './pages/Settings';
 import { WebhooksPage } from './pages/Webhooks';
 import { href, navigate, useRoute } from './router';
-import { Modal, SecretField } from './ui';
+import { Modal, SecretField, ErrorMessage } from './ui';
 
 export function App() {
-  const me = useQuery({ queryKey: ['me'], queryFn: api.dashboard.me, retry: false });
+  // A 401 means "show the login"; anything else (offline, 5xx) is worth retrying.
+  const me = useQuery({ queryKey: ['me'], queryFn: api.dashboard.me, retry: (count, error) => !isUnauthorized(error) && count < 2 });
   if (me.isPending) return <div className="center muted">Loading…</div>;
-  if (me.isError) return isUnauthorized(me.error) ? <Login /> : <div className="center error">{errorText(me.error)}</div>;
+  if (me.isError) {
+    return isUnauthorized(me.error) ? (
+      <Login />
+    ) : (
+      <div className="center">
+        <ErrorMessage error={me.error} retry={() => me.refetch()} />
+      </div>
+    );
+  }
   return <Shell />;
 }
 
@@ -40,7 +49,7 @@ function Login() {
           Password
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password" />
         </label>
-        {login.isError && <p className="error">{errorText(login.error)}</p>}
+        <ErrorMessage error={login.error} />
         <button type="submit" className="primary" disabled={!password || login.isPending}>
           {login.isPending ? 'Signing in…' : 'Sign in'}
         </button>
@@ -65,7 +74,8 @@ function Shell() {
   const [creating, setCreating] = useState(false);
   const logout = useMutation({
     mutationFn: api.dashboard.logout,
-    onSuccess: () => {
+    // Reload either way: never leave the admin believing they are signed out when they are not.
+    onSettled: () => {
       client.clear();
       window.location.reload();
     },
@@ -111,6 +121,9 @@ function Shell() {
       <main className="main">
         {projects.isPending ? (
           <p className="muted">Loading…</p>
+        ) : projects.isError ? (
+          // Never fall through to "no projects" on a failed load: it invites duplicate projects.
+          <ErrorMessage error={projects.error} retry={() => projects.refetch()} />
         ) : !project ? (
           <div className="empty">
             <h2>No project selected</h2>
@@ -208,7 +221,7 @@ function CreateProject({ onClose }: { onClose: () => void }) {
           App name
           <input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="1% Better" />
         </label>
-        {create.isError && <p className="error">{errorText(create.error)}</p>}
+        <ErrorMessage error={create.error} />
         <button type="submit" className="primary" disabled={!name.trim() || create.isPending}>
           Create
         </button>

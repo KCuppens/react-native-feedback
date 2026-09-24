@@ -248,7 +248,9 @@ function AdminControls({ post, onDeleted }: { post: Post; onDeleted?: () => void
                 key={s}
                 label={strings.status[s]}
                 active={post.status === s}
-                onPress={() => m.update.mutate({ id: post.id, patch: { status: s } })}
+                onPress={() => {
+                  if (!m.update.isPending) m.update.mutate({ id: post.id, patch: { status: s } });
+                }}
               />
             ))}
           </View>

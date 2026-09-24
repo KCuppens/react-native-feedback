@@ -9,3 +9,4 @@ export {
   type FeedbackUIEvent,
 } from './context';
 export * from './hooks';
+export { deepEqual, useStableValue } from './stable';

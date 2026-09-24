@@ -1,7 +1,8 @@
 import { formatRelativeTime, locales, type Post } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, errorText } from '../api';
+import { ErrorMessage } from '../ui';
+import { api, latestError } from '../api';
 import { href } from '../router';
 
 export function useProjectInvalidate(projectId: string) {
@@ -17,7 +18,7 @@ export function QueuePage({ projectId }: { projectId: string }) {
   const queue = useQuery({ queryKey: ['p', projectId, 'queue'], queryFn: () => admin.listQueue() });
 
   if (queue.isPending) return <p className="muted">Loading…</p>;
-  if (queue.isError) return <p className="error">{errorText(queue.error)}</p>;
+  if (queue.isError) return <ErrorMessage error={queue.error} retry={() => queue.refetch()} />;
   if (queue.data.items.length === 0) {
     return (
       <div className="empty">
@@ -42,7 +43,7 @@ function QueueCard({ projectId, post }: { projectId: string; post: Post }) {
   const [declining, setDeclining] = useState(false);
   const approve = useMutation({ mutationFn: () => admin.approve(post.id), onSuccess: invalidate });
   const decline = useMutation({ mutationFn: () => admin.decline(post.id, reason.trim() || null), onSuccess: invalidate });
-  const error = approve.error ?? decline.error;
+  const error = latestError(approve, decline);
 
   return (
     <article className="card">
@@ -91,7 +92,7 @@ function QueueCard({ projectId, post }: { projectId: string; post: Post }) {
           </button>
         </div>
       )}
-      {error && <p className="error">{errorText(error)}</p>}
+      <ErrorMessage error={error} />
     </article>
   );
 }

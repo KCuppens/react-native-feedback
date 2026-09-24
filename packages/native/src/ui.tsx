@@ -1,4 +1,4 @@
-import { useFeedbackContext } from '@kobecuppens/feedback-core/react';
+import { useFeedbackContext, useStableValue } from '@kobecuppens/feedback-core/react';
 import type { FeedbackStrings, FeedbackTheme, Post, PostStatus, UploadFile } from '@kobecuppens/feedback-core';
 import { createContext, useContext, useMemo, type ComponentType, type ReactNode } from 'react';
 import { makeBaseStyles, mergeStyles, type FeedbackStyles, type SlotName, type SlotStyle } from './styles';
@@ -83,10 +83,13 @@ const NativeUIContext = createContext<NativeUIValue | null>(null);
 export function NativeUIProvider({ options, children }: { options: NativeUIOptions; children: ReactNode }) {
   const { theme } = useFeedbackContext();
   const base = useMemo(() => makeBaseStyles(theme), [theme]);
-  const styles = useMemo(() => mergeStyles(base, options.styles), [base, options.styles]);
+  // Inline objects are the common case; compare by content so the style table and cards stay stable.
+  const styleOverrides = useStableValue(options.styles);
+  const components = useStableValue(options.components);
+  const styles = useMemo(() => mergeStyles(base, styleOverrides), [base, styleOverrides]);
   const value = useMemo(
-    () => ({ styles, components: options.components ?? {}, pickImage: options.pickImage, hideHeader: !!options.hideHeader }),
-    [styles, options.components, options.pickImage, options.hideHeader],
+    () => ({ styles, components: components ?? {}, pickImage: options.pickImage, hideHeader: !!options.hideHeader }),
+    [styles, components, options.pickImage, options.hideHeader],
   );
   return <NativeUIContext.Provider value={value}>{children}</NativeUIContext.Provider>;
 }

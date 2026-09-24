@@ -117,7 +117,13 @@ export function useVote() {
     },
     // `post` is the pre-vote snapshot the caller passed in.
     onError: (error, { post }, ctx) => {
-      if (ctx && isLatest(post.id, ctx.seq)) updateCachedPost(client, scope, post.id, () => post);
+      if (ctx && isLatest(post.id, ctx.seq)) {
+        // The snapshot may itself be an earlier tap's optimistic state: restore it for now,
+        // then refetch the server's copy.
+        updateCachedPost(client, scope, post.id, () => post);
+        void client.invalidateQueries({ queryKey: feedbackKeys.post(scope, post.id) });
+        void client.invalidateQueries({ queryKey: feedbackKeys.postsPrefix(scope) });
+      }
       onEvent({ type: 'error', error });
     },
     onSuccess: (saved, _vars, ctx) => {

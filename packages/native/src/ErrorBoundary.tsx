@@ -3,6 +3,7 @@ import { Component, type ReactNode } from 'react';
 import { ErrorState } from './components';
 
 interface Props {
+  message: string;
   onError: (error: unknown) => void;
   children: ReactNode;
 }
@@ -15,11 +16,19 @@ class Boundary extends Component<Props, { error: unknown }> {
   }
 
   componentDidCatch(error: unknown) {
-    this.props.onError(error);
+    // A throwing analytics handler must not escape the boundary it reports from.
+    try {
+      this.props.onError(error);
+    } catch (reportError) {
+      console.error(reportError);
+    }
   }
 
   render() {
-    if (this.state.error) return <ErrorState error={this.state.error} onRetry={() => this.setState({ error: null })} />;
+    // Render crashes are usually TypeErrors too: never present them as a network problem.
+    if (this.state.error) {
+      return <ErrorState error={this.state.error} message={this.props.message} onRetry={() => this.setState({ error: null })} />;
+    }
     return this.props.children;
   }
 }
@@ -29,6 +38,10 @@ class Boundary extends Component<Props, { error: unknown }> {
  * component override) from unmounting the host app's screen. Reports via onEvent.
  */
 export function FeedbackErrorBoundary({ children }: { children: ReactNode }) {
-  const { onEvent } = useFeedbackContext();
-  return <Boundary onError={(error) => onEvent({ type: 'error', error })}>{children}</Boundary>;
+  const { onEvent, strings } = useFeedbackContext();
+  return (
+    <Boundary message={strings.errors.generic} onError={(error) => onEvent({ type: 'error', error })}>
+      {children}
+    </Boundary>
+  );
 }

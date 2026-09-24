@@ -169,17 +169,22 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
 
   // Move focus to the new screen's heading on push, and back to the trigger on pop,
   // so keyboard and screen reader users keep their place.
-  const root = useRef<HTMLDivElement>(null);
+  // Keyed on the top route, not just the depth: submit replaces [tabs, submit] with
+  // [tabs, post] at the same depth and must still move focus to the new screen.
+  const screen = useRef<HTMLDivElement>(null);
   const triggers = useRef<(HTMLElement | null)[]>([]);
-  const depth = useRef(stack.length);
+  const previous = useRef({ depth: stack.length, top: 'tabs' });
+  const top = route.name === 'post' ? `post:${route.id}` : route.name;
   useEffect(() => {
-    if (stack.length > depth.current) {
-      root.current?.querySelector<HTMLElement>('[data-fb-screen-title]')?.focus();
-    } else if (stack.length < depth.current) {
+    const before = previous.current;
+    previous.current = { depth: stack.length, top };
+    if (stack.length < before.depth) {
       triggers.current.pop()?.focus();
+    } else if (top !== before.top) {
+      // A custom or hidden header has no title to focus: fall back to the screen itself.
+      (screen.current?.querySelector<HTMLElement>('[data-fb-screen-title]') ?? screen.current)?.focus();
     }
-    depth.current = stack.length;
-  }, [stack.length]);
+  }, [stack.length, top]);
   const navigate = (r: Route) => {
     triggers.current.push(document.activeElement as HTMLElement | null);
     push(r);
@@ -202,10 +207,14 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
   // position, search and filters, and does not refetch every loaded page.
   const covered = route.name !== 'tabs';
   return (
-    <div ref={root} style={{ display: 'contents' }}>
-      {route.name === 'post' && <FeedbackDetail key={route.id} postId={route.id} initialPost={route.initial} onBack={pop} />}
-      {route.name === 'submit' && (
-        <FeedbackSubmit onCancel={pop} onDone={(post) => setStack([{ name: 'tabs' }, { name: 'post', id: post.id, initial: post }])} />
+    <div style={{ display: 'contents' }}>
+      {covered && (
+        <div ref={screen} tabIndex={-1} style={{ display: 'flex', flexDirection: 'column', flex: 1, outline: 'none' }}>
+          {route.name === 'post' && <FeedbackDetail key={route.id} postId={route.id} initialPost={route.initial} onBack={pop} />}
+          {route.name === 'submit' && (
+            <FeedbackSubmit onCancel={pop} onDone={(post) => setStack([{ name: 'tabs' }, { name: 'post', id: post.id, initial: post }])} />
+          )}
+        </div>
       )}
       <div hidden={covered} style={{ display: covered ? 'none' : 'contents' }}>
         {headerAccessory}

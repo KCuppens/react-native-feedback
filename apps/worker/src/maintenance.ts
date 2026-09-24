@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import { processEvent } from './events';
+import { log } from './util';
 
 const DAY = 86_400_000;
 const BATCH = 500;
@@ -32,22 +33,27 @@ export async function runMaintenance(env: Env, now = Date.now()): Promise<void> 
       summary[name] = await run();
     } catch (error) {
       summary[name] = 'failed';
-      console.error(JSON.stringify({ msg: 'maintenance step failed', step: name, error: String(error) }));
+      log('error', 'maintenance step failed', { step: name, error: String(error) });
     }
   }
-  console.log(JSON.stringify({ msg: 'maintenance', ...summary, durationMs: Date.now() - started }));
+  log('info', 'maintenance', { ...summary, durationMs: Date.now() - started });
 }
 
 /** Uploads that were never attached to a post or comment within a day. */
 async function deleteUnclaimedUploads(env: Env, before: number): Promise<number> {
   let deleted = 0;
   for (;;) {
-    const { results } = await env.DB.prepare('SELECT id, r2_key FROM attachments WHERE post_id IS NULL AND created_at < ? LIMIT ?')
+    // Delete the rows first, re-checking they are still unclaimed, and only then the files:
+    // an upload attached to a post in the meantime keeps both.
+    const { results } = await env.DB.prepare(
+      `DELETE FROM attachments
+       WHERE id IN (SELECT id FROM attachments WHERE post_id IS NULL AND created_at < ?1 LIMIT ?2) AND post_id IS NULL
+       RETURNING r2_key`,
+    )
       .bind(before, BATCH)
-      .all<{ id: string; r2_key: string }>();
+      .all<{ r2_key: string }>();
     if (results.length === 0) return deleted;
     await env.FILES.delete(results.map((r) => r.r2_key));
-    await env.DB.batch(results.map((r) => env.DB.prepare('DELETE FROM attachments WHERE id = ?').bind(r.id)));
     deleted += results.length;
     if (results.length < BATCH) return deleted;
   }
@@ -74,7 +80,7 @@ async function redeliverStuckEvents(env: Env, before: number): Promise<number> {
     try {
       await processEvent(env, id);
     } catch (error) {
-      console.error(JSON.stringify({ msg: 'event redelivery failed', eventId: id, error: String(error) }));
+      log('error', 'event redelivery failed', { eventId: id, error: String(error) });
     }
   }
   return results.length;

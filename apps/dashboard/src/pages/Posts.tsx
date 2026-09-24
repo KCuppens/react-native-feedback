@@ -1,9 +1,9 @@
 import { formatRelativeTime, locales, POST_STATUSES, type PostStatus } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { api, errorText } from '../api';
+import { api } from '../api';
 import { href } from '../router';
-import { STATUS_LABELS, StatusBadge } from '../ui';
+import { STATUS_LABELS, StatusBadge, ErrorMessage } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 type Moderation = 'all' | 'pending' | 'approved' | 'declined';
@@ -57,11 +57,11 @@ export function PostsPage({ projectId }: { projectId: string }) {
           ))}
         </select>
       </div>
-      {update.isError && <p className="error">{errorText(update.error)}</p>}
+      <ErrorMessage error={update.error} />
       {posts.isPending ? (
         <p className="muted">Loading…</p>
       ) : posts.isError ? (
-        <p className="error">{errorText(posts.error)}</p>
+        <ErrorMessage error={posts.error} retry={() => posts.refetch()} />
       ) : posts.data.items.length === 0 ? (
         <p className="muted">No posts match.</p>
       ) : (

@@ -14,12 +14,18 @@ const slug = window.location.pathname.replace(/^\/p\/?/, '').split('/')[0] ?? ''
 // Apps can link here with a signed token (?user=...) so votes count as that user.
 const params = new URLSearchParams(window.location.search);
 const userToken = params.get('user');
-if (userToken) window.history.replaceState(null, '', window.location.pathname);
+if (userToken) {
+  // Drop only the token from the address bar; keep ?lang= and anything else for reloads and shares.
+  params.delete('user');
+  const rest = params.toString();
+  window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+}
 const locale = matchLocale(params.get('lang') ?? navigator.language);
 const strings = resolveStrings(locale);
 document.documentElement.lang = locale;
 
-const center = { fontFamily: 'system-ui, sans-serif', textAlign: 'center', padding: 48, color: '#52525b' } as const;
+// --muted is defined per colour scheme in index.html, so these states stay readable in dark mode.
+const center = { fontFamily: 'system-ui, sans-serif', textAlign: 'center', padding: 48, color: 'var(--muted)' } as const;
 
 function PublicBoard() {
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
@@ -27,7 +33,8 @@ function PublicBoard() {
   const load = useCallback(() => {
     if (!slug) return setState({ kind: 'missing' });
     setState({ kind: 'loading' });
-    fetch(`/v1/public/projects/${encodeURIComponent(slug)}`)
+    // Time out so a stalled connection reaches the retry state instead of loading forever.
+    fetch(`/v1/public/projects/${encodeURIComponent(slug)}`, { signal: AbortSignal.timeout?.(15_000) })
       .then(async (r) => {
         if (r.status === 404) return setState({ kind: 'missing' });
         if (!r.ok) return setState({ kind: 'failed' });

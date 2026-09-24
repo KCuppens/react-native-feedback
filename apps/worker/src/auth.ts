@@ -5,7 +5,7 @@ import { createMiddleware } from 'hono/factory';
 import { jwtVerify, SignJWT } from 'jose';
 import type { AppEnv, EndUserRow, Env, Identity, Project } from './env';
 import { findProjectById, findProjectByPublicKey, findProjectBySecretHash } from './projects';
-import { fail, flag, newId, now, sha256Hex } from './util';
+import { assertSameOrigin, fail, flag, newId, now, sha256Hex } from './util';
 
 export const SESSION_COOKIE = 'fb_session';
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -204,6 +204,7 @@ export const adminAuth = createMiddleware<AppEnv>(async (c, next) => {
 
   const projectHeader = c.req.header('X-Feedback-Project');
   if (projectHeader && (await hasDashboardSession(c))) {
+    assertSameOrigin(c);
     const project = await findProjectById(c.env, projectHeader);
     if (!project) fail(404, 'project_not_found');
     asFullAdmin(c, project);

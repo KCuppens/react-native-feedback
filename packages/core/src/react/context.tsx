@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { FeedbackAdapter } from '../adapter';
 import { createHostedAdapter, type KeyValueStorage } from '../hosted';
+import { useStableValue } from './stable';
 import { resolveStrings, type FeedbackStrings, type FeedbackStringsInput } from '../i18n';
 import { resolveTheme, type FeedbackTheme, type ThemeProp } from '../theme';
 import { FeedbackApiError, type ClientFeatures, type Post } from '../types';
@@ -67,7 +68,8 @@ export function FeedbackProvider(props: FeedbackProviderProps) {
   const themeKey = JSON.stringify(props.theme ?? null);
   // Intentional dependencies: keyed on the theme's content so inline theme objects do not rebuild styles
   const theme = useMemo(() => resolveTheme(props.theme, props.colorScheme ?? 'light'), [themeKey, props.colorScheme]);
-  const strings = useMemo(() => resolveStrings(props.locale, props.strings), [props.locale, props.strings]);
+  const stringOverrides = useStableValue(props.strings);
+  const strings = useMemo(() => resolveStrings(props.locale, stringOverrides), [props.locale, stringOverrides]);
 
   const featuresKey = JSON.stringify(props.features ?? {});
   // Intentional dependencies: keyed on the features' content so inline objects do not re-render the board

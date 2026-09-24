@@ -1,5 +1,5 @@
 import { describeError, formatRelativeTime, type Post } from '@kobecuppens/feedback-core';
-import { memo } from 'react';
+import { memo, type CSSProperties } from 'react';
 import {
   useUI,
   type AvatarProps,
@@ -10,6 +10,19 @@ import {
   type StatusPillProps,
   type VoteControlProps,
 } from './ui';
+
+/** Visually hidden but read by screen readers; inline so it also works with `unstyled`. */
+export const srOnly: CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
 
 export function tint(color: string | null | undefined): string | undefined {
   return color && /^#[0-9a-f]{6}$/i.test(color) ? `${color}22` : undefined;
@@ -97,7 +110,7 @@ export function VoteControl(props: VoteControlProps) {
       {arrow(1)}
       <span {...slot('voteCount')}>
         <span aria-hidden="true">{post.score}</span>
-        <span className="fb-srOnly">{strings.post.votes(post.score)}</span>
+        <span style={srOnly}>{strings.post.votes(post.score)}</span>
       </span>
       {showDownvote && arrow(-1)}
     </div>
@@ -135,11 +148,11 @@ export function Loading() {
   );
 }
 
-export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+export function ErrorState({ error, onRetry, message }: { error: unknown; onRetry?: () => void; message?: string }) {
   const { strings } = useUI();
   return (
     <EmptyState
-      message={error instanceof TypeError ? strings.errors.network : strings.errors.generic}
+      message={message ?? describeError(strings, error)}
       action={onRetry ? { label: strings.errors.retry, onClick: onRetry } : undefined}
     />
   );

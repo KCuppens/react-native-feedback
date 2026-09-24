@@ -128,12 +128,11 @@ export function Loading() {
   );
 }
 
-export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+export function ErrorState({ error, onRetry, message }: { error: unknown; onRetry?: () => void; message?: string }) {
   const { strings } = useUI();
-  const offline = error instanceof TypeError; // fetch network failures
   return (
     <EmptyState
-      message={offline ? strings.errors.network : strings.errors.generic}
+      message={message ?? describeError(strings, error)}
       action={onRetry ? { label: strings.errors.retry, onPress: onRetry } : undefined}
     />
   );

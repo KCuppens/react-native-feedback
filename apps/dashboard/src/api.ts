@@ -13,6 +13,13 @@ export const queryClient = new QueryClient({
   },
 });
 
+/** The error of whichever of these mutations failed most recently (older failures are stale). */
+export function latestError(...mutations: { error: unknown; isError: boolean; submittedAt: number }[]): unknown {
+  let latest: { error: unknown; submittedAt: number } | null = null;
+  for (const m of mutations) if (m.isError && (!latest || m.submittedAt > latest.submittedAt)) latest = m;
+  return latest?.error ?? null;
+}
+
 export const isUnauthorized = (e: unknown) => e instanceof FeedbackApiError && e.status === 401;
 
 export function errorText(e: unknown): string {

@@ -15,7 +15,7 @@ import type {
   VoteValue,
 } from './types';
 import { base64UrlDecodeToString } from './encoding';
-import { parseResponse, toQuery } from './http';
+import { parseResponse, timeoutSignal, toQuery } from './http';
 
 /** Default hosted API. Override per app with `baseUrl`. */
 export const DEFAULT_API_URL = 'https://feedback-api.kobecuppens.workers.dev';
@@ -42,14 +42,6 @@ export interface HostedAdapterOptions {
   fetch?: typeof fetch;
   /** Abort requests after this many ms (default 20s) so a stalled connection cannot spin forever. */
   timeoutMs?: number;
-}
-
-/** AbortSignal.timeout is missing on older Hermes, so build it by hand (and clear it when done). */
-function timeoutSignal(ms: number): { signal?: AbortSignal; clear: () => void } {
-  if (typeof AbortController === 'undefined') return { clear: () => {} };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 
 const ANON_KEY = 'rnf:anon-id';
@@ -85,7 +77,9 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
   const doFetch = options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const storage = options.storage ?? memoryStorage();
   let userToken = options.userToken ?? null;
-  let identity = identityOf(userToken);
+  // `undefined` = not known yet (getUserToken not called): resolving it the first time is
+  // not a switch, so it must not reset the host's cache.
+  let identity: string | null | undefined = userToken || !options.getUserToken ? identityOf(userToken) : undefined;
   const identityListeners = new Set<() => void>();
   let pendingToken: Promise<string | null> | null = null;
   let anonId: Promise<string> | null = null;
@@ -98,8 +92,9 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
       .then((token) => {
         userToken = token;
         const next = identityOf(token);
-        if (next !== identity) {
-          identity = next;
+        const previous = identity;
+        identity = next;
+        if (previous !== undefined && next !== previous) {
           for (const listener of identityListeners) listener();
         }
         return token;
@@ -135,25 +130,25 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
       headers['Content-Type'] = 'application/json';
       payload = JSON.stringify(body);
     }
+    // The timeout covers reading the body too: a connection can stall after the headers.
     const timeout = timeoutSignal(options.timeoutMs ?? 20_000);
-    let res: Response;
+    let expired = false;
     try {
-      res = await doFetch(`${baseUrl}${path}`, { method, headers, body: payload, signal: timeout.signal });
+      const res = await doFetch(`${baseUrl}${path}`, { method, headers, body: payload, signal: timeout.signal });
+      if (res.status === 401 && !retried && options.getUserToken) {
+        const err = (await res
+          .clone()
+          .json()
+          .catch(() => ({}))) as { error?: string };
+        expired = err.error === 'user_token_expired';
+      }
+      if (!expired) return await parseResponse<T>(res);
     } finally {
       timeout.clear();
     }
-    if (res.status === 401 && !retried && options.getUserToken) {
-      const err = (await res
-        .clone()
-        .json()
-        .catch(() => ({}))) as { error?: string };
-      if (err.error === 'user_token_expired') {
-        userToken = null;
-        await refreshToken();
-        return request<T>(method, path, body, true);
-      }
-    }
-    return parseResponse<T>(res);
+    userToken = null;
+    await refreshToken();
+    return request<T>(method, path, body, true);
   }
 
   const admin: FeedbackAdminAdapter = {

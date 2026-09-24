@@ -1,5 +1,13 @@
 import { FeedbackApiError } from './types';
 
+/** AbortSignal.timeout is missing on older Hermes, so build it by hand (and clear it when done). */
+export function timeoutSignal(ms: number): { signal?: AbortSignal; clear: () => void } {
+  if (typeof AbortController === 'undefined') return { clear: () => {} };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
+}
+
 /** `?a=1&b=x,y`, skipping empty values. Arrays become comma lists. */
 export function toQuery(params: Record<string, unknown>): string {
   const q = new URLSearchParams();

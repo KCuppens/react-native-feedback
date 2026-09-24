@@ -4,6 +4,14 @@ import type { Context } from 'hono';
 import type { AppEnv, Env } from './env';
 
 export const newId = () => crypto.randomUUID();
+
+/** One JSON line per event, with a uniform `level` + `msg`, so Workers Logs can filter on fields. */
+export function log(level: 'info' | 'warn' | 'error', msg: string, fields: Record<string, unknown> = {}): void {
+  const line = JSON.stringify({ level, msg, ...fields });
+  if (level === 'error') console.error(line);
+  else if (level === 'warn') console.warn(line);
+  else console.log(line);
+}
 export const now = () => Date.now();
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -32,7 +40,7 @@ export function generateProjectKeys() {
   };
 }
 
-/** Throw a JSON error `{ error, message }`. */
+/** Why a field failed validation (sent as `reason` next to `field`). */
 export type InvalidReason = 'required' | 'not_string' | 'too_short' | 'too_long' | 'not_array' | 'too_many';
 
 /** Throw a JSON error `{ error, message, ...details }`; details carry e.g. `{ field, reason }` for form errors. */
@@ -127,17 +135,31 @@ export function timingSafeEqualString(a: string, b: string): boolean {
  * A single upsert, so concurrent requests cannot both slip under the limit.
  */
 export async function overRateLimit(env: Env, key: string, max: number, windowMs: number): Promise<boolean> {
+  return overAnyRateLimit(env, [{ key, max, windowMs }]);
+}
+
+export interface RateLimit {
+  key: string;
+  max: number;
+  windowMs: number;
+}
+
+/** Several counters in one round trip; true when any of them is over its limit. */
+export async function overAnyRateLimit(env: Env, limits: RateLimit[]): Promise<boolean> {
+  if (limits.length === 0) return false;
   const ts = Date.now();
-  const row = await env.DB.prepare(
-    `INSERT INTO rate_limits (key, window_start, count) VALUES (?1, ?2, 1)
-     ON CONFLICT (key) DO UPDATE SET
-       count = CASE WHEN window_start <= ?3 THEN 1 ELSE count + 1 END,
-       window_start = CASE WHEN window_start <= ?3 THEN ?2 ELSE window_start END
-     RETURNING count`,
-  )
-    .bind(key, ts, ts - windowMs)
-    .first<{ count: number }>();
-  return (row?.count ?? 0) > max;
+  const results = await env.DB.batch(
+    limits.map(({ key, windowMs }) =>
+      env.DB.prepare(
+        `INSERT INTO rate_limits (key, window_start, count) VALUES (?1, ?2, 1)
+         ON CONFLICT (key) DO UPDATE SET
+           count = CASE WHEN window_start <= ?3 THEN 1 ELSE count + 1 END,
+           window_start = CASE WHEN window_start <= ?3 THEN ?2 ELSE window_start END
+         RETURNING count`,
+      ).bind(key, ts, ts - windowMs),
+    ),
+  );
+  return results.some((result, i) => ((result.results[0] as { count: number } | undefined)?.count ?? 0) > limits[i]!.max);
 }
 
 export function clientIp(req: { header(name: string): string | undefined }): string {
@@ -164,11 +186,22 @@ export function deleteFilesInBackground(c: Context<AppEnv>, keys: string[], what
   if (keys.length === 0) return;
   const work = (async () => {
     for (let i = 0; i < keys.length; i += 1000) await c.env.FILES.delete(keys.slice(i, i + 1000));
-  })().catch((error: unknown) =>
-    console.error(JSON.stringify({ msg: 'r2 cleanup failed', what, keys: keys.length, error: String(error) })),
-  );
+    // Also drop this colo's edge copies (keys are `<projectId>/<attachmentId>`); other colos
+    // expire on the short edge TTL set in the files route.
+    const edge = typeof caches === 'undefined' ? undefined : (caches as unknown as { default: Cache }).default;
+    if (edge) {
+      const origin = new URL(c.req.url).origin;
+      await Promise.all(keys.map((key) => edge.delete(`${origin}/v1/files/${key.split('/').pop()}`)));
+    }
+  })().catch((error: unknown) => log('error', 'r2 cleanup failed', { what, keys: keys.length, error: String(error) }));
   const ctx = ctxOf(c);
   if (ctx) ctx.waitUntil(work);
+}
+
+/** Defence in depth next to SameSite=Strict: refuse cookie-authenticated writes from another origin. */
+export function assertSameOrigin(c: Context<AppEnv>): void {
+  const origin = c.req.header('Origin');
+  if (c.req.method !== 'GET' && origin && origin !== new URL(c.req.url).origin) fail(403, 'forbidden');
 }
 
 /** 400 unless the category belongs to the project. */

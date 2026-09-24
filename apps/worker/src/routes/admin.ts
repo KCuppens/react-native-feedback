@@ -53,9 +53,14 @@ async function adminEvent(
   type: (typeof FEEDBACK_EVENT_TYPES)[number],
   postId: string,
   data?: Record<string, unknown>,
+  onlyIf?: { sql: string; params: (string | number)[] },
 ): Promise<PendingEvent> {
   const actor = c.get('adminLevel') === 'moderator' ? await getViewer(c) : null;
-  return prepareEvent(c.env, { projectId: c.get('project').id, type, postId, actorId: actor?.id ?? null, data, origin: originOf(c) });
+  return prepareEvent(
+    c.env,
+    { projectId: c.get('project').id, type, postId, actorId: actor?.id ?? null, data, origin: originOf(c) },
+    onlyIf,
+  );
 }
 
 const dispatch = (c: Context<AppEnv>, event: PendingEvent) => dispatchEvent(c.env, ctxOf(c), event.id);
@@ -96,16 +101,18 @@ adminRoutes.post('/posts/:id/approve', async (c) => {
   const post = await loadPost(c, c.req.param('id'));
   if (post.moderation === 'approved') return c.json(publicPost(post));
   const ts = now();
-  const event = await adminEvent(c, 'post.approved', post.id);
-  await c.env.DB.batch([
-    c.env.DB.prepare("UPDATE posts SET moderation = 'approved', decline_reason = NULL, moderated_at = ?, updated_at = ? WHERE id = ?").bind(
-      ts,
-      ts,
-      post.id,
-    ),
+  // Guarded so two concurrent approvals record (and email) the change once.
+  const event = await adminEvent(c, 'post.approved', post.id, undefined, {
+    sql: "EXISTS (SELECT 1 FROM posts WHERE id = ? AND moderation = 'approved' AND moderated_at = ?)",
+    params: [post.id, ts],
+  });
+  const [approved] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      "UPDATE posts SET moderation = 'approved', decline_reason = NULL, moderated_at = ?, updated_at = ? WHERE id = ? AND moderation != 'approved'",
+    ).bind(ts, ts, post.id),
     event.statement,
   ]);
-  await dispatch(c, event);
+  if (approved?.meta.changes) await dispatch(c, event);
   return c.json(await reload(c, post.id));
 });
 
@@ -135,16 +142,12 @@ adminRoutes.patch('/posts/:id', async (c) => {
   const params: (string | number | null)[] = [];
   const ts = now();
 
-  let statusChanged = false;
+  let newStatus: PostStatus | null = null;
   if (body.status !== undefined) {
     if (typeof body.status !== 'string' || !(POST_STATUSES as readonly string[]).includes(body.status)) {
       fail(400, 'invalid_input', 'unknown status');
     }
-    if (body.status !== post.status) {
-      statusChanged = true;
-      sets.push('status = ?', 'status_changed_at = ?');
-      params.push(body.status as PostStatus, ts);
-    }
+    if (body.status !== post.status) newStatus = body.status as PostStatus;
   }
   if (body.categoryId !== undefined) {
     // A blank string clears the category rather than failing the foreign key.
@@ -163,14 +166,38 @@ adminRoutes.patch('/posts/:id', async (c) => {
     sets.push('body = ?');
     params.push(text);
   }
-  const event = statusChanged ? await adminEvent(c, 'post.status_changed', post.id, { previousStatus: post.status }) : null;
-  if (sets.length) {
-    await c.env.DB.batch([
-      c.env.DB.prepare(`UPDATE posts SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).bind(...params, ts, post.id),
-      ...(event ? [event.statement] : []),
-    ]);
+  // The status change is its own guarded statement, so concurrent identical changes emit once.
+  const event = newStatus
+    ? await adminEvent(
+        c,
+        'post.status_changed',
+        post.id,
+        { previousStatus: post.status },
+        { sql: 'EXISTS (SELECT 1 FROM posts WHERE id = ? AND status = ? AND status_changed_at = ?)', params: [post.id, newStatus, ts] },
+      )
+    : null;
+  const statements = [
+    ...(sets.length
+      ? [c.env.DB.prepare(`UPDATE posts SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).bind(...params, ts, post.id)]
+      : []),
+    ...(newStatus && event
+      ? [
+          c.env.DB.prepare('UPDATE posts SET status = ?, status_changed_at = ?, updated_at = ? WHERE id = ? AND status != ?').bind(
+            newStatus,
+            ts,
+            ts,
+            post.id,
+            newStatus,
+          ),
+          event.statement,
+        ]
+      : []),
+  ];
+  if (statements.length) {
+    const results = await c.env.DB.batch(statements);
+    const statusResult = results[sets.length ? 1 : 0];
+    if (event && statusResult?.meta.changes) await dispatch(c, event);
   }
-  if (event) await dispatch(c, event);
   return c.json(await reload(c, post.id));
 });
 

@@ -5,6 +5,7 @@ import type { AppEnv, ProjectRow } from '../env';
 import { createSessionCookieValue, requireDashboard, SESSION_COOKIE, SESSION_TTL_SECONDS } from '../auth';
 import { findProjectById, forgetProject, LIMITS, slugify, toProject, toSummary } from '../projects';
 import {
+  assertSameOrigin,
   clientIp,
   deleteFilesInBackground,
   fail,
@@ -23,9 +24,7 @@ export const dashboardRoutes = new Hono<AppEnv>();
 
 dashboardRoutes.use('*', async (c, next) => {
   if (!flag(c.env, 'FEATURE_DASHBOARD')) fail(404, 'not_found');
-  // Defence in depth next to SameSite=Strict: refuse state changes posted from another origin.
-  const origin = c.req.header('Origin');
-  if (c.req.method !== 'GET' && origin && origin !== new URL(c.req.url).origin) fail(403, 'forbidden');
+  assertSameOrigin(c);
   await next();
 });
 
@@ -136,7 +135,6 @@ dashboardRoutes.post('/projects/:id/rotate', async (c) => {
   if (!project) fail(404, 'project_not_found');
   const body = await readJson(c.req.raw);
   const fresh = generateProjectKeys();
-  forgetProject(project.id);
   const result: { publicKey: string; signingSecret: string; secretKey?: string } = {
     publicKey: project.publicKey,
     signingSecret: project.signingSecret,
@@ -155,5 +153,7 @@ dashboardRoutes.post('/projects/:id/rotate', async (c) => {
   } else {
     fail(400, 'invalid_input', 'key must be public, signing or secret');
   }
+  // After the write, so a concurrent request cannot re-cache the old keys.
+  forgetProject(project.id);
   return c.json(result);
 });

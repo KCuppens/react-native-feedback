@@ -49,7 +49,8 @@ export function formatRelativeTime(strings: FeedbackStrings, timestamp: number, 
  * Server messages are English and meant for developers, so they are never shown as-is.
  */
 export function describeError(strings: FeedbackStrings, error: unknown): string {
-  if (error instanceof TypeError) return strings.errors.network;
+  // fetch reports network failures as TypeError, and our request timeout as an AbortError.
+  if (error instanceof TypeError || (error instanceof Error && error.name === 'AbortError')) return strings.errors.network;
   if (!(error instanceof FeedbackApiError)) return strings.errors.generic;
   if (error.status === 413) return strings.errors.uploadTooLarge;
   if (error.status === 429) return strings.errors.rateLimited;

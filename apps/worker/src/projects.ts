@@ -74,7 +74,8 @@ const MAX_CACHED_PROJECTS = 1000;
 
 function projectCacheMs(env: Env): number {
   const seconds = Number(env.PROJECT_CACHE_SECONDS ?? 30);
-  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+  // Capped: a rotated key or revoked setting stays valid in other isolates for at most this long.
+  return Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, 60) * 1000 : 0;
 }
 
 /** Drop a project from this isolate's cache after changing it. */
@@ -116,10 +117,11 @@ export async function findProjectBySlug(env: Env, slug: string): Promise<Project
  * which parseSettings turns back into the default.
  */
 export async function patchSettings(env: Env, projectId: string, patch: Partial<ProjectSettings>): Promise<ProjectSettings> {
-  forgetProject(projectId);
   const row = await env.DB.prepare('UPDATE projects SET settings = json_patch(settings, ?) WHERE id = ? RETURNING settings')
     .bind(JSON.stringify(patch), projectId)
     .first<{ settings: string }>();
+  // After the write, so a concurrent request cannot re-cache the old row.
+  forgetProject(projectId);
   return parseSettings(row?.settings ?? '{}');
 }
 

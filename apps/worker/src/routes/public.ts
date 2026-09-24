@@ -34,7 +34,8 @@ import {
   newId,
   now,
   originOf,
-  overRateLimit,
+  overAnyRateLimit,
+  type RateLimit,
   parseCursor,
   parseLimit,
   readJson,
@@ -126,11 +127,14 @@ const PER_USER_PER_HOUR = { post: LIMITS.postsPerHour, comment: LIMITS.commentsP
  * Anonymous ids are chosen by the client, so their writes are also capped per IP.
  */
 async function limitWrites(c: Context<AppEnv>, viewerId: string, action: keyof typeof PER_USER_PER_HOUR) {
+  const limits: RateLimit[] = [];
   const perUser = PER_USER_PER_HOUR[action];
-  if (perUser !== null && (await overRateLimit(c.env, `user:${viewerId}:${action}`, perUser, HOUR))) rateLimited();
-  if (!c.get('identity')?.anonymous) return;
-  const key = `anon:${c.get('project').id}:${action}:${clientIp(c.req)}`;
-  if (await overRateLimit(c.env, key, LIMITS.anonymousPerIpPerHour[action], HOUR)) rateLimited();
+  if (perUser !== null) limits.push({ key: `user:${viewerId}:${action}`, max: perUser, windowMs: HOUR });
+  if (c.get('identity')?.anonymous) {
+    const key = `anon:${c.get('project').id}:${action}:${clientIp(c.req)}`;
+    limits.push({ key, max: LIMITS.anonymousPerIpPerHour[action], windowMs: HOUR });
+  }
+  if (await overAnyRateLimit(c.env, limits)) rateLimited();
 }
 
 publicRoutes.post('/posts', async (c) => {

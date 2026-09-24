@@ -11,7 +11,7 @@ import type {
   ProjectSummary,
   WebhookConfig,
 } from './types';
-import { parseResponse, toQuery as q } from './http';
+import { parseResponse, timeoutSignal, toQuery as q } from './http';
 
 export interface AdminClientOptions {
   baseUrl: string;
@@ -21,6 +21,8 @@ export interface AdminClientOptions {
    */
   secretKey?: string;
   fetch?: typeof fetch;
+  /** Abort requests after this many ms (default 20s). */
+  timeoutMs?: number;
 }
 
 export type AdminListParams = ListPostsParams & { moderation?: 'pending' | 'approved' | 'declined' | 'all' };
@@ -45,7 +47,12 @@ export function createAdminClient(options: AdminClientOptions) {
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: options.secretKey ? 'omit' : 'include',
     } as RequestInit;
-    return parseResponse<T>(await doFetch(`${baseUrl}${path}`, init));
+    const timeout = timeoutSignal(options.timeoutMs ?? 20_000);
+    try {
+      return await parseResponse<T>(await doFetch(`${baseUrl}${path}`, { ...init, signal: timeout.signal }));
+    } finally {
+      timeout.clear();
+    }
   }
 
   /** Everything scoped to a single project. `projectId` is ignored with a secret key. */

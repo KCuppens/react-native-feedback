@@ -1,7 +1,26 @@
 import { locales, type Post } from '@kobecuppens/feedback-core';
+import { errorText } from './api';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 export const STATUS_LABELS = locales.en.status;
+
+/** An announced error line, with an optional retry for failed loads. */
+export function ErrorMessage({ error, retry }: { error: unknown; retry?: () => unknown }) {
+  if (!error) return null;
+  return (
+    <p className="error" role="alert">
+      {errorText(error)}
+      {retry && (
+        <>
+          {' '}
+          <button type="button" className="ghost small" onClick={() => void retry()}>
+            Retry
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -25,7 +44,11 @@ export function useDialogFocus<T extends HTMLElement>(onClose: () => void) {
       const first = items[0];
       const last = items[items.length - 1];
       if (!first || !last) return;
-      if (e.shiftKey && document.activeElement === first) {
+      // Focus on the container itself, or lost to <body> after an inline swap: bring it back in.
+      if (document.activeElement === dialog || !dialog.contains(document.activeElement)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && document.activeElement === first) {
         e.preventDefault();
         last.focus();
       } else if (!e.shiftKey && document.activeElement === last) {
@@ -99,7 +122,10 @@ export function SecretField({ label, value, revealed = false }: { label: string;
   );
 }
 
-/** A destructive action that asks once, inline, before running. */
+/**
+ * A destructive action that asks once, inline, before running. Focus moves to Cancel (the
+ * safe choice, which also announces the question) and returns to the trigger afterwards.
+ */
 export function ConfirmButton({
   label,
   question,
@@ -116,9 +142,17 @@ export function ConfirmButton({
   className?: string;
 }) {
   const [asking, setAsking] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
+  const wasAsking = useRef(false);
+  useEffect(() => {
+    if (asking) cancel.current?.focus();
+    else if (wasAsking.current) trigger.current?.focus();
+    wasAsking.current = asking;
+  }, [asking]);
   if (!asking) {
     return (
-      <button type="button" className={className} onClick={() => setAsking(true)} disabled={pending}>
+      <button ref={trigger} type="button" className={className} onClick={() => setAsking(true)} disabled={pending}>
         {label}
       </button>
     );
@@ -137,7 +171,7 @@ export function ConfirmButton({
       >
         {confirmLabel ?? label}
       </button>
-      <button type="button" className="ghost" onClick={() => setAsking(false)}>
+      <button ref={cancel} type="button" className="ghost" onClick={() => setAsking(false)}>
         Cancel
       </button>
     </span>

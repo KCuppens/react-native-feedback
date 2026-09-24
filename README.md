@@ -122,7 +122,7 @@ cd apps/worker && npm run project:create -- --name "1% Better" --remote --env pr
 
 Configure per project in the dashboard or `POST /v1/admin/webhooks`. Events: `post.created`, `post.approved`, `post.declined`, `post.status_changed`, `post.merged`, `post.deleted`, `comment.created`. Verify with `verifyWebhook(secret, rawBody, req.headers['x-feedback-signature'])` from `@kobecuppens/feedback-core/server`. Use this to send your own push notifications.
 
-**Delivery.** Each event is POSTed once, **at most once**: the worker claims the event before sending, tries your endpoint twice (10s timeout each), and does not retry later. Answer `2xx` quickly and do heavy work asynchronously. Use `id` to deduplicate if you process events elsewhere too.
+**Delivery.** The worker claims each event once and never redelivers it later. If your endpoint times out (10s), fails at the network level, or answers 5xx/408/429, it is retried once after 1–2s; other 4xx answers are not retried. A timed-out request may still have reached you, so **always deduplicate on `id`**. Answer `2xx` quickly and do heavy work asynchronously.
 
 ```json
 {
@@ -152,8 +152,11 @@ Set `DEFAULT_API_URL` in `packages/core/src/hosted.ts` to your deployed URL, so 
 
 ## Develop
 
+Requires Node 22.13+ (see `.nvmrc`).
+
 ```bash
 npm install
+npm run lint       # Biome
 npm test           # core, native (via react-native-web in jsdom), react, worker (D1 on node:sqlite)
 npm run typecheck
 npm run build      # publishable dist/ for the three packages

@@ -1,9 +1,9 @@
 import type { ProjectSettings, ProjectSummary } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, errorText } from '../api';
+import { api, latestError } from '../api';
 import { navigate } from '../router';
-import { ConfirmButton, SecretField } from '../ui';
+import { ConfirmButton, SecretField, ErrorMessage } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 const TOGGLES: { key: keyof ProjectSettings; label: string; help: string }[] = [
@@ -58,16 +58,18 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
   });
 
   const s = settings.data;
-  const error = save.error ?? rename.error ?? rotate.error ?? remove.error;
+  const error = latestError(save, rename, rotate, remove);
   const origin = window.location.origin;
 
   return (
     <div className="stack narrow">
-      {error && <p className="error">{errorText(error)}</p>}
+      <ErrorMessage error={error} />
 
       <section className="card stack">
         <h3>Board behaviour</h3>
-        {!s ? (
+        {settings.isError ? (
+          <ErrorMessage error={settings.error} retry={() => settings.refetch()} />
+        ) : !s ? (
           <p className="muted">Loading…</p>
         ) : (
           <>
@@ -109,6 +111,7 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
 
       <section className="card stack">
         <h3>Keys</h3>
+        <ErrorMessage error={secrets.error} retry={() => secrets.refetch()} />
         {secrets.data && (
           <>
             <SecretField label="Public key: pass as projectKey in your app" value={secrets.data.publicKey} revealed />

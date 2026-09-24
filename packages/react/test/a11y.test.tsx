@@ -28,6 +28,32 @@ describe('accessibility and resilience', () => {
     await waitFor(() => expect(document.activeElement).toBe(card));
   });
 
+  it('moves focus to the new post after submitting', async () => {
+    render(<FeedbackBoard adapter={seed()} locale="en" />);
+    fireEvent.click(await screen.findByRole('button', { name: /New idea/ }));
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Keyboard idea' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(document.activeElement?.textContent).toBe('Keyboard idea'));
+  });
+
+  it('describes a crash as a generic failure, not a network problem', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const PostCard = (): never => {
+      throw new TypeError("Cannot read properties of undefined (reading 'title')");
+    };
+    render(<FeedbackBoard adapter={seed()} locale="en" components={{ PostCard }} />);
+    await screen.findByText('Something went wrong.');
+    expect(screen.queryByText('Check your connection and try again.')).toBeNull();
+  });
+
+  it('keeps vote counts visually hidden even when unstyled', async () => {
+    render(<FeedbackBoard adapter={seed()} locale="en" unstyled />);
+    const label = await screen.findByText('2 votes');
+    expect(label.style.position).toBe('absolute');
+    expect(label.style.clip).toBe('rect(0px, 0px, 0px, 0px)');
+  });
+
   it('contains render errors from a broken override', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const onEvent = vi.fn();

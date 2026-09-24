@@ -1,8 +1,8 @@
 import type { Category } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { api, errorText } from '../api';
-import { ConfirmButton } from '../ui';
+import { api, latestError } from '../api';
+import { ConfirmButton, ErrorMessage } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 export function CategoriesPage({ projectId }: { projectId: string }) {
@@ -26,8 +26,8 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
   const remove = useMutation({ mutationFn: (id: string) => admin.deleteCategory(id), onSuccess: invalidate });
 
   const list = categories.data ?? [];
-  // Rewrite positions from the list order so equal sort values can never stall a swap,
-  // and block further moves until both writes land.
+  // Rewrite positions from the list order so equal sort values can never stall a move,
+  // and block further moves until every write lands.
   const reorder = useMutation({
     mutationFn: (ordered: Category[]) =>
       Promise.all(ordered.map((c, sort) => (c.sort === sort ? null : admin.updateCategory(c.id, { sort })))),
@@ -39,13 +39,13 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
     ordered.splice(to, 0, item!);
     reorder.mutate(ordered);
   };
-  const error = create.error ?? update.error ?? remove.error ?? reorder.error;
+  const error = latestError(create, update, remove, reorder);
 
   return (
     <div className="stack narrow">
       <p className="muted">Categories let users tag submissions (Feature, Bug, Improvement…) and filter the board.</p>
       {categories.isPending && <p className="muted">Loading…</p>}
-      {categories.isError && <p className="error">{errorText(categories.error)}</p>}
+      <ErrorMessage error={categories.error} />
       {categories.isSuccess && list.length === 0 && <p className="muted">No categories yet. Add the first one below.</p>}
       <ul className="list">
         {list.map((c, i) => (
@@ -108,7 +108,7 @@ export function CategoriesPage({ projectId }: { projectId: string }) {
           Add
         </button>
       </form>
-      {error && <p className="error">{errorText(error)}</p>}
+      <ErrorMessage error={error} />
     </div>
   );
 }

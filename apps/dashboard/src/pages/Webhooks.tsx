@@ -1,8 +1,8 @@
 import { FEEDBACK_EVENT_TYPES, type FeedbackEventType } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, errorText } from '../api';
-import { ConfirmButton, SecretField } from '../ui';
+import { api } from '../api';
+import { ConfirmButton, ErrorMessage, SecretField } from '../ui';
 import { useProjectInvalidate } from './Queue';
 
 export function WebhooksPage({ projectId }: { projectId: string }) {
@@ -26,6 +26,10 @@ export function WebhooksPage({ projectId }: { projectId: string }) {
         Events are POSTed as JSON with an <code>X-Feedback-Signature</code> header. Verify it with <code>verifyWebhook()</code> from{' '}
         <code>@kobecuppens/feedback-core/server</code>, for example to send your own push notifications.
       </p>
+      {hooks.isPending && <p className="muted">Loading…</p>}
+      <ErrorMessage error={hooks.error} retry={() => hooks.refetch()} />
+      {hooks.isSuccess && hooks.data.length === 0 && <p className="muted">No webhooks yet.</p>}
+      <ErrorMessage error={remove.error} />
       {hooks.data?.map((h) => (
         <article key={h.id} className="card stack">
           <div className="row between">
@@ -73,7 +77,7 @@ export function WebhooksPage({ projectId }: { projectId: string }) {
         <button type="submit" className="primary" disabled={!url || events.length === 0 || create.isPending}>
           Add webhook
         </button>
-        {(create.error ?? remove.error) && <p className="error">{errorText(create.error ?? remove.error)}</p>}
+        <ErrorMessage error={create.error} />
       </form>
     </div>
   );
