@@ -220,6 +220,8 @@ export function makeBaseStyles(t: FeedbackTheme): Record<SlotName, SlotStyle> {
       padding: s.md,
       borderRadius: t.radii.lg,
       backgroundColor: c.surface,
+      // Explicit, or Android keeps cardPending's dashed border after a post is approved.
+      borderStyle: 'solid',
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
       ...cardShadow,
