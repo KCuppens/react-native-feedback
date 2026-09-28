@@ -10,3 +10,8 @@ coverage
 .optimizer-cache/
 .resourceproof-cache/
 .cleanproof-cache/
+
+# E2E
+e2e/.state/
+test-results/
+playwright-report/

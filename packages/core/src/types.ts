@@ -1,3 +1,5 @@
+import type { FeedbackThemeInput } from './theme';
+
 export const POST_STATUSES = ['open', 'under_review', 'planned', 'in_progress', 'done', 'closed'] as const;
 export type PostStatus = (typeof POST_STATUSES)[number];
 
@@ -86,6 +88,23 @@ export interface ProjectSettings {
   adminEmail: string | null;
   /** Language of the new-post emails to the team (a built-in locale code). */
   emailLocale: string;
+  /** How the public board page (/p/<slug>) looks; null keeps the default look. */
+  appearance: PublicBoardAppearance | null;
+}
+
+/** Branding for the public board page, so it can match the app's own website. */
+export interface PublicBoardAppearance {
+  /** 'system' follows the visitor's device. */
+  colorScheme?: 'light' | 'dark' | 'system';
+  /** Theme tokens (colours, fonts, radii…) passed to the board. */
+  theme?: FeedbackThemeInput;
+  /** Extra CSS for the page; board elements carry `fb-<slot>` classes. */
+  css?: string;
+  /** A Google Fonts stylesheet (https://fonts.googleapis.com/css2?…) for the fonts the theme names. */
+  fontsUrl?: string;
+  /** Shown above the board, linking to `homeUrl`. */
+  logoUrl?: string;
+  homeUrl?: string;
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
@@ -100,6 +119,7 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   notifySubmitter: true,
   adminEmail: null,
   emailLocale: 'en',
+  appearance: null,
 };
 
 /** What the widget may render for the current viewer, resolved by the server. */

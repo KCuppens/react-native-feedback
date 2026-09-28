@@ -18,10 +18,12 @@
     "test": "npm run test --workspaces --if-present",
     "deploy": "npm run typecheck && npm test && npm run build:web && npm run db:migrate:remote -w @feedback/worker && npm run deploy -w @feedback/worker",
     "lint": "biome check .",
-    "format": "biome check --write ."
+    "format": "biome check --write .",
+    "e2e": "playwright test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
+    "@playwright/test": "^1.63.0",
     "@types/react": "^19.1.0",
     "typescript": "~5.9.2"
   },

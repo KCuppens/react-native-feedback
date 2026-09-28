@@ -81,6 +81,11 @@ describe('limits, merges, CSRF, health and edge caching', () => {
     expect(page.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
     expect(page.headers.get('X-Frame-Options')).toBe('DENY');
     expect(page.headers.get('X-Request-Id')).toBeTruthy();
+    // Only the public board may load a project's Google Fonts.
+    expect(page.headers.get('Content-Security-Policy')).not.toContain('fonts.g');
+    const board = await h.request('/p/demo');
+    expect(board.headers.get('Content-Security-Policy')).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com");
+    expect(board.headers.get('Content-Security-Policy')).toContain("font-src 'self' https://fonts.gstatic.com");
   });
 
   it('reports an unreachable database as unhealthy', async () => {

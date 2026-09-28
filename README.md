@@ -81,6 +81,10 @@ Each app can restyle the board in up to four layers, from light-touch to full co
 
 The React DOM package also takes `classNames={{ card: 'rounded-2xl shadow' }}` (Tailwind or CSS modules) and `unstyled` to drop the built-in CSS. Its default rules use `:where()` (zero specificity), so your classes always win. Theme tokens are exposed as CSS variables (`--fb-color-primary`, `--fb-radius-md`, …).
 
+### The public board page
+
+`/p/<slug>` (switch it on under Settings & keys) can wear your website's look. In the dashboard, **Public board appearance** takes a logo and the link it goes to, a colour scheme, theme tokens (JSON, as above), a Google Fonts URL and custom CSS aimed at the `fb-<slot>` classes; the same fields can be set with `PATCH /v1/admin/settings { "appearance": { … } }`. The CSS is kept to 20 000 characters, URLs must be https, and fonts can only come from Google Fonts (the page's CSP).
+
 ### Headless / custom navigation
 
 Every screen is exported for use inside your own navigator, and every hook for fully custom UIs:
@@ -179,5 +183,7 @@ npm test           # core, native (via react-native-web in jsdom), react, worker
 npm run typecheck
 npm run build      # publishable dist/ for the three packages
 ```
+
+End-to-end tests (`npm run e2e`, Playwright) build the dashboard and public board, start the worker with `wrangler dev` on a fresh local D1 (no email, no queue), and walk one project through the dashboard, the public board and in-board moderation. Run `npx playwright install chromium` once.
 
 Local stack: `cp apps/worker/.dev.vars.example apps/worker/.dev.vars`, `npm run db:migrate:local -w @feedback/worker`, `npm run dev -w @feedback/worker` (API on :8787), then `npm run dev -w @feedback/dashboard` (proxies `/v1`).

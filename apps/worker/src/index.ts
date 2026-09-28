@@ -90,9 +90,10 @@ app.get('/v1/public/projects/:slug', async (c) => {
   requireFlag(c.env, 'FEATURE_PUBLIC_BOARD');
   const project = await findProjectBySlug(c.env, c.req.param('slug'));
   if (!project?.settings.publicBoard) fail(404, 'not_found');
-  // Public, non-secret fields; a short cache saves the board's first request on repeat visits.
-  c.header('Cache-Control', 'public, max-age=60');
-  return c.json({ name: project.name, slug: project.slug, publicKey: project.publicKey });
+  // Always fresh: a cached copy would keep serving a rotated public key (the board then fails
+  // with "sign in again"), old branding or a deleted project.
+  c.header('Cache-Control', 'no-cache');
+  return c.json({ name: project.name, slug: project.slug, publicKey: project.publicKey, appearance: project.settings.appearance });
 });
 
 app.route('/v1/dashboard', dashboardRoutes);
@@ -115,9 +116,14 @@ async function serveSpa(c: Context<AppEnv>, prefix: '/admin/' | '/p/') {
   const hashed = !fellBack && asset.status === 200 && url.pathname.startsWith(`${prefix}assets/`);
   res.headers.set('Cache-Control', hashed ? 'public, max-age=31536000, immutable' : 'no-cache');
   // The dashboard shows secrets and both pages render user content: lock them down.
+  // The public board may load a project's Google Fonts (see PublicBoardAppearance.fontsUrl).
+  const fonts =
+    prefix === '/p/'
+      ? { style: ' https://fonts.googleapis.com', font: "; font-src 'self' https://fonts.gstatic.com" }
+      : { style: '', font: '' };
   res.headers.set(
     'Content-Security-Policy',
-    "default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    `default-src 'self'; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'${fonts.style}${fonts.font}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
   );
   res.headers.set('X-Frame-Options', 'DENY');
   res.headers.set('Referrer-Policy', 'no-referrer');

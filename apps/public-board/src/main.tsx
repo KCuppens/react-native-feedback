@@ -1,3 +1,4 @@
+import type { PublicBoardAppearance } from '@kobecuppens/feedback-core';
 import { FeedbackBoard, matchLocale, resolveStrings } from '@kobecuppens/react-feedback';
 import { StrictMode, useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -6,6 +7,26 @@ interface PublicProject {
   name: string;
   slug: string;
   publicKey: string;
+  appearance: PublicBoardAppearance | null;
+}
+
+/** The project's branding: its fonts, extra CSS and colour scheme, applied to the page. */
+function applyAppearance(appearance: PublicBoardAppearance | null) {
+  if (!appearance) return;
+  if (appearance.fontsUrl) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = appearance.fontsUrl;
+    document.head.append(link);
+  }
+  if (appearance.css) {
+    const style = document.createElement('style');
+    style.dataset.appearance = '';
+    style.textContent = appearance.css;
+    document.head.append(style);
+  }
+  // index.html only darkens the page for 'system'; a fixed scheme wins over the device.
+  if (appearance.colorScheme && appearance.colorScheme !== 'system') document.documentElement.dataset.colorScheme = appearance.colorScheme;
 }
 
 type LoadState = { kind: 'loading' } | { kind: 'ready'; project: PublicProject } | { kind: 'missing' } | { kind: 'failed' };
@@ -40,6 +61,7 @@ function PublicBoard() {
         if (!r.ok) return setState({ kind: 'failed' });
         const project = (await r.json()) as PublicProject;
         document.title = `${project.name} · ${strings.tabs.board}`;
+        applyAppearance(project.appearance);
         setState({ kind: 'ready', project });
       })
       .catch(() => setState({ kind: 'failed' }));
@@ -66,15 +88,24 @@ function PublicBoard() {
     );
   }
   const { project } = state;
+  const appearance = project.appearance ?? {};
+  const logo = appearance.logoUrl ? <img className="fb-page-logo" src={appearance.logoUrl} alt={project.name} /> : null;
   return (
-    <main style={{ maxWidth: 820, margin: '0 auto', minHeight: '100%', display: 'flex', flexDirection: 'column' }}>
+    <main className="fb-page">
       <FeedbackBoard
         projectKey={project.publicKey}
         baseUrl={window.location.origin}
         userToken={userToken}
         locale={locale}
+        theme={appearance.theme}
+        colorScheme={appearance.colorScheme ?? 'system'}
         style={{ flex: 1 }}
-        headerAccessory={<h1 style={{ margin: 0, padding: '20px 16px 8px', font: '700 22px var(--fb-font-heading)' }}>{project.name}</h1>}
+        headerAccessory={
+          <header className="fb-page-header">
+            {logo && (appearance.homeUrl ? <a href={appearance.homeUrl}>{logo}</a> : logo)}
+            <h1 className="fb-page-title">{project.name}</h1>
+          </header>
+        }
       />
     </main>
   );

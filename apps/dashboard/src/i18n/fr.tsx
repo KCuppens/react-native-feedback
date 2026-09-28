@@ -141,7 +141,10 @@ export const fr: DashboardStrings = {
       allowComments: { label: 'Autoriser les commentaires', help: '' },
       allowAttachments: { label: 'Autoriser les images jointes', help: "Captures d'écran jusqu'à 5 Mo." },
       roadmapEnabled: { label: 'Afficher la feuille de route', help: 'Colonnes Prévue / En cours / Terminée.' },
-      inAppAdmin: { label: "Administration dans l'app", help: 'Les utilisateurs signés avec isAdmin: true peuvent modérer dans le widget.' },
+      inAppAdmin: {
+        label: "Administration dans l'app",
+        help: 'Les utilisateurs signés avec isAdmin: true peuvent modérer dans le widget.',
+      },
       publicBoard: { label: 'Page publique du tableau', help: 'Page de lecture et de vote sur /p/<slug>.' },
       notifySubmitter: {
         label: 'Envoyer un e-mail aux auteurs',
@@ -171,11 +174,26 @@ export const fr: DashboardStrings = {
     projectName: 'Nom du projet',
     rename: 'Renommer',
     deleteProject: 'Supprimer le projet…',
-    deleteWarning: (slug) => (
-      <>Cela supprime toutes les publications, votes, commentaires et images. Tapez {slug} pour confirmer.</>
-    ),
+    deleteWarning: (slug) => <>Cela supprime toutes les publications, votes, commentaires et images. Tapez {slug} pour confirmer.</>,
     confirmSlug: 'Confirmer le slug',
     deleteForever: 'Supprimer définitivement',
+    appearance: {
+      title: 'Apparence du tableau public',
+      intro:
+        'Accordez la page publique du tableau à votre site. Les éléments du tableau portent des classes fb-<slot> pour le CSS ci-dessous.',
+      colorScheme: 'Jeu de couleurs',
+      schemes: { system: "Suivre l'appareil", light: 'Toujours clair', dark: 'Toujours sombre' },
+      logoUrl: 'URL du logo',
+      homeUrl: 'Le logo mène à',
+      fontsUrl: 'URL Google Fonts',
+      fontsHelp: 'Un lien fonts.googleapis.com/css2 pour les polices de votre thème.',
+      theme: 'Jetons du thème (JSON)',
+      themeHelp: 'Couleurs, polices, arrondis et espacements, p. ex. {"colors":{"primary":"#1a1a1a"},"radii":{"md":0}}.',
+      css: 'CSS personnalisé',
+      invalidTheme: "Le thème n'est pas un JSON valide.",
+      save: "Enregistrer l'apparence",
+      reset: 'Rétablir par défaut',
+    },
   },
   drawer: {
     label: 'Publication',
