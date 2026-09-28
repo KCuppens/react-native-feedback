@@ -78,7 +78,8 @@ export function FeedbackDetail({ postId, initialPost, onBack, onDeleted }: Feedb
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <h1 {...slot('detailTitle')}>{post.title}</h1>
             <div {...slot('cardMeta')}>
-              <PostStatusPill post={post} />
+              {/* A pending or declined post already says so in the banner above. */}
+              {post.moderation === 'approved' && <PostStatusPill post={post} />}
               {post.category && <CategoryPill name={post.category.name} color={post.category.color} />}
               <span {...slot('cardMetaText')}>
                 {strings.post.by(post.author.name ?? strings.post.anonymous)} · {formatRelativeTime(strings, post.createdAt)}

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHostedAdapter, createMemoryAdapter, FeedbackApiError } from '../src';
 
 function jsonResponse(status: number, body: unknown) {
@@ -41,7 +41,9 @@ describe('createHostedAdapter', () => {
     await adapter.getConfig();
     locale = 'ja';
     await adapter.getConfig();
-    const sent = fetch.mock.calls.map((call) => ((call as unknown as [string, RequestInit])[1].headers as Record<string, string>)['X-Feedback-Locale']);
+    const sent = fetch.mock.calls.map(
+      (call) => ((call as unknown as [string, RequestInit])[1].headers as Record<string, string>)['X-Feedback-Locale'],
+    );
     expect(sent).toEqual(['de', 'ja']);
 
     const silent = vi.fn(async () => jsonResponse(200, {}));
@@ -128,6 +130,99 @@ describe('createHostedAdapter', () => {
     const fetch = vi.fn(async () => new Response('<html>Bad gateway</html>', { status: 502 }));
     const adapter = createHostedAdapter({ projectKey: 'pk', baseUrl: 'https://a', fetch });
     await expect(adapter.getConfig()).rejects.toMatchObject({ name: 'FeedbackApiError', status: 502, code: 'request_failed' });
+  });
+});
+
+describe('uploads', () => {
+  /** React Native's FormData keeps `{ uri }` parts as they are; Node's would stringify them. */
+  class NativeFormData {
+    parts: [string, unknown][] = [];
+    append(name: string, value: unknown) {
+      this.parts.push([name, value]);
+    }
+  }
+
+  class FakeXhr {
+    static last: FakeXhr;
+    method = '';
+    url = '';
+    headers: Record<string, string> = {};
+    body: unknown;
+    status = 0;
+    responseText = '';
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onabort: (() => void) | null = null;
+    constructor() {
+      FakeXhr.last = this;
+    }
+    open(method: string, url: string) {
+      this.method = method;
+      this.url = url;
+    }
+    setRequestHeader(key: string, value: string) {
+      this.headers[key] = value;
+    }
+    send(body: unknown) {
+      this.body = body;
+      this.status = 201;
+      this.responseText = JSON.stringify({ id: 'att_1', url: 'https://a/v1/files/att_1', mime: 'image/png' });
+      queueMicrotask(() => this.onload?.());
+    }
+    abort() {
+      this.onabort?.();
+    }
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('sends a React Native { uri } file through XMLHttpRequest, not fetch', async () => {
+    vi.stubGlobal('FormData', NativeFormData);
+    vi.stubGlobal('XMLHttpRequest', FakeXhr);
+    const globalFetch = vi.fn();
+    vi.stubGlobal('fetch', globalFetch);
+    const adapter = createHostedAdapter({ projectKey: 'pk_1', baseUrl: 'https://a', userToken: 'tok' });
+
+    const file = { uri: 'file:///cache/shot.png', name: 'shot.png', type: 'image/png' };
+    await expect(adapter.upload(file)).resolves.toMatchObject({ id: 'att_1' });
+
+    expect(globalFetch).not.toHaveBeenCalled();
+    const xhr = FakeXhr.last;
+    expect(xhr.method).toBe('POST');
+    expect(xhr.url).toBe('https://a/v1/uploads');
+    expect(xhr.headers).toMatchObject({ 'X-Feedback-Key': 'pk_1', 'X-Feedback-User': 'tok' });
+    expect(xhr.headers['Content-Type']).toBeUndefined();
+    expect((xhr.body as NativeFormData).parts).toEqual([['file', file]]);
+  });
+
+  it('turns an XMLHttpRequest error status into a FeedbackApiError', async () => {
+    vi.stubGlobal('FormData', NativeFormData);
+    class Rejecting extends FakeXhr {
+      override send() {
+        this.status = 415;
+        this.responseText = JSON.stringify({ error: 'unsupported_type' });
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal('XMLHttpRequest', Rejecting);
+    const adapter = createHostedAdapter({ projectKey: 'pk_1', baseUrl: 'https://a', userToken: 'tok' });
+    await expect(adapter.upload({ uri: 'file:///x.bmp', name: 'x.bmp', type: 'image/bmp' })).rejects.toMatchObject({
+      name: 'FeedbackApiError',
+      status: 415,
+      code: 'unsupported_type',
+    });
+  });
+
+  it('keeps using fetch for a Blob, and for any file when a fetch option is given', async () => {
+    vi.stubGlobal('XMLHttpRequest', FakeXhr);
+    const fetch = vi.fn(async () => jsonResponse(201, { id: 'att_2' }));
+    const adapter = createHostedAdapter({ projectKey: 'pk_1', baseUrl: 'https://a', userToken: 'tok', fetch });
+
+    await adapter.upload(new Blob(['png'], { type: 'image/png' }));
+    vi.stubGlobal('FormData', NativeFormData);
+    await adapter.upload({ uri: 'file:///cache/shot.png', name: 'shot.png', type: 'image/png' });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
 

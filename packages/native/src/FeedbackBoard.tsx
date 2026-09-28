@@ -3,10 +3,11 @@ import {
   FeedbackProvider as CoreFeedbackProvider,
   useFeatures,
   useHasFeedbackProvider,
+  useRefreshStale,
   type FeedbackProviderProps as CoreProviderProps,
 } from '@kobecuppens/feedback-core/react';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { BackHandler, Pressable, Text, useColorScheme, View } from 'react-native';
+import { AppState, BackHandler, Pressable, Text, useColorScheme, View } from 'react-native';
 import { defaultStorage } from './platform';
 import { FeedbackAdminQueue } from './screens/FeedbackAdminQueue';
 import { FeedbackDetail } from './screens/FeedbackDetail';
@@ -92,6 +93,21 @@ function BoardNavigator({ initialTab, headerAccessory }: { initialTab: BoardTab;
     });
     return () => sub.remove();
   }, [stack.length, pop]);
+
+  // The tabs stay mounted under pushed screens, and React Native has no window focus: refresh
+  // what is stale when the user comes back to them or reopens the app, so a post moderated
+  // meanwhile does not keep showing its old state until a pull-to-refresh.
+  const refreshStale = useRefreshStale();
+  const onTabs = route.name === 'tabs';
+  useEffect(() => {
+    if (onTabs) refreshStale();
+  }, [onTabs, refreshStale]);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshStale();
+    });
+    return () => sub.remove();
+  }, [refreshStale]);
 
   const tabs = useMemo(() => {
     const list: BoardTab[] = ['board'];

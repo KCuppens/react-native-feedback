@@ -15,7 +15,7 @@ import type {
   VoteValue,
 } from './types';
 import { base64UrlDecodeToString } from './encoding';
-import { parseResponse, timeoutSignal, toQuery } from './http';
+import { hasXhr, parseResponse, timeoutSignal, toQuery, xhrFetch } from './http';
 
 /** Default hosted API. Override per app with `baseUrl`. */
 export const DEFAULT_API_URL = 'https://feedback-api.kobecuppens.workers.dev';
@@ -51,6 +51,8 @@ export interface HostedAdapterOptions {
 
 const ANON_KEY = 'rnf:anon-id';
 
+type Send = (url: string, init: RequestInit) => Promise<Response>;
+
 function randomId(): string {
   const c = (globalThis as { crypto?: Crypto }).crypto;
   if (c?.randomUUID) return c.randomUUID();
@@ -79,7 +81,7 @@ function identityOf(token: string | null): string | null {
 
 export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdapter {
   const baseUrl = (options.baseUrl ?? DEFAULT_API_URL).replace(/\/+$/, '');
-  const doFetch = options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
+  const doFetch: Send = options.fetch ?? ((url, init) => fetch(url, init));
   const storage = options.storage ?? memoryStorage();
   let userToken = options.userToken ?? null;
   // `undefined` = not known yet (getUserToken not called): resolving it the first time is
@@ -124,7 +126,11 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
     return { 'X-Feedback-Anon': await getAnonId() };
   }
 
-  async function request<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
+  // A React Native `{ uri }` file only uploads through RN's own networking (see xhrFetch);
+  // an explicit `fetch` option still wins, as it does for every other request.
+  const uploadFetch = (file: UploadFile): Send => (!options.fetch && 'uri' in file && hasXhr() ? xhrFetch : doFetch);
+
+  async function request<T>(method: string, path: string, body?: unknown, retried = false, send = doFetch): Promise<T> {
     const headers: Record<string, string> = {
       'X-Feedback-Key': options.projectKey,
       ...(await identityHeaders()),
@@ -141,7 +147,7 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
     const timeout = timeoutSignal(options.timeoutMs ?? 20_000);
     let expired = false;
     try {
-      const res = await doFetch(`${baseUrl}${path}`, { method, headers, body: payload, signal: timeout.signal });
+      const res = await send(`${baseUrl}${path}`, { method, headers, body: payload, signal: timeout.signal });
       if (res.status === 401 && !retried && options.getUserToken) {
         const err = (await res
           .clone()
@@ -155,7 +161,7 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
     }
     userToken = null;
     await refreshToken();
-    return request<T>(method, path, body, true);
+    return request<T>(method, path, body, true, send);
   }
 
   const admin: FeedbackAdminAdapter = {
@@ -192,7 +198,7 @@ export function createHostedAdapter(options: HostedAdapterOptions): FeedbackAdap
       const form = new FormData();
       // RN's FormData accepts { uri, name, type }; the DOM typing does not know that.
       form.append('file', file as Blob, 'name' in file ? file.name : 'upload');
-      return request<Attachment>('POST', '/v1/uploads', form);
+      return request<Attachment>('POST', '/v1/uploads', form, false, uploadFetch(file));
     },
     getRoadmap: () => request<RoadmapColumn[]>('GET', '/v1/roadmap'),
     getUpdates: () => request<Updates>('GET', '/v1/me/updates'),

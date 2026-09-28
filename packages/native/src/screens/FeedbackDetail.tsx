@@ -103,7 +103,8 @@ export function FeedbackDetail({ postId, initialPost, onBack, onDeleted }: Feedb
               {post.title}
             </Text>
             <View style={styles.cardMeta}>
-              <PostStatusPill post={post} />
+              {/* A pending or declined post already says so in the banner above. */}
+              {post.moderation === 'approved' && <PostStatusPill post={post} />}
               {post.category && <CategoryPill name={post.category.name} color={post.category.color} />}
               <Text style={styles.cardMetaText}>
                 {strings.post.by(post.author.name ?? strings.post.anonymous)} · {formatRelativeTime(strings, post.createdAt)}
@@ -177,7 +178,10 @@ function CommentItem({ comment }: { comment: Comment }) {
             <Text style={styles.officialBadgeText}>{strings.post.official}</Text>
           </View>
         )}
-        <Text style={styles.commentTime}>{formatRelativeTime(strings, comment.createdAt)}</Text>
+        {/* Growing past its text width keeps Android from dropping the last word ("just now"). */}
+        <Text style={[styles.commentTime, { flexGrow: 1 }]} numberOfLines={1}>
+          {formatRelativeTime(strings, comment.createdAt)}
+        </Text>
       </View>
       <Text style={styles.commentBody}>{comment.body}</Text>
     </View>
