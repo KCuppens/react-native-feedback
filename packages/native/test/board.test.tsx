@@ -1,5 +1,6 @@
 import { createMemoryAdapter, type Post } from '@kobecuppens/feedback-core';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient } from '@tanstack/react-query';
 import { Text } from 'react-native';
 import { describe, expect, it, vi } from 'vitest';
 import { FeedbackBoard, FeedbackList, FeedbackProvider, type PostCardProps } from '../src';
@@ -75,8 +76,20 @@ describe('<FeedbackBoard>', () => {
     await screen.findByText('Thanks! Your post will appear once it has been reviewed.');
     expect(adapter.posts[0]).toMatchObject({ title: 'Offline mode', moderation: 'pending' });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    // Detail banner + detail pill, plus the new card's pill in the (hidden) list underneath.
-    expect(await screen.findAllByText('Awaiting review')).toHaveLength(3);
+    // The detail banner (its status pill would only repeat it), plus the new card's pill in the (hidden) list underneath.
+    expect(await screen.findAllByText('Awaiting review')).toHaveLength(2);
+  });
+
+  it('refreshes stale posts when the user comes back to the tabs', async () => {
+    const adapter = seed();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 0, retry: false } } });
+    render(<FeedbackBoard adapter={adapter} queryClient={queryClient} locale="en" />);
+    fireEvent.click(await screen.findByRole('button', { name: /^Dark mode,/ }));
+    await screen.findByRole('button', { name: 'Back' });
+    // Moderated somewhere else while the post was open.
+    adapter.posts.find((p) => p.id === 'p1')!.status = 'in_progress';
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await screen.findByRole('button', { name: /^Dark mode, In progress/ });
   });
 
   it('shows the review queue for in-app admins and approves', async () => {

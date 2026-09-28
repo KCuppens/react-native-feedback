@@ -49,7 +49,10 @@ export function FeedbackUpdates({ onOpenPost, markSeen = true }: FeedbackUpdates
         <Pressable accessibilityRole="button" onPress={() => onOpenPost(item.post)} style={styles.updateItem}>
           <View style={styles.commentHeader}>
             <Text style={styles.updateKind}>{label(item)}</Text>
-            <Text style={styles.commentTime}>{formatRelativeTime(strings, item.at)}</Text>
+            {/* Growing past its text width keeps Android from dropping the last word ("just now"). */}
+            <Text style={[styles.commentTime, { flexGrow: 1 }]} numberOfLines={1}>
+              {formatRelativeTime(strings, item.at)}
+            </Text>
           </View>
           <Text style={styles.updateTitle} numberOfLines={2}>
             {item.post.title}

@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
-import { useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import type {
   AdminPostPatch,
   BoardConfig,
@@ -95,6 +95,17 @@ function refetchFromFirstPage(client: QueryClient, queryKey: readonly unknown[])
     data && data.pages.length > 1 ? { pages: data.pages.slice(0, 1), pageParams: data.pageParams.slice(0, 1) } : data,
   );
   void client.invalidateQueries({ queryKey });
+}
+
+/**
+ * Refetch this board's on-screen data that is past its stale time. For moments the query
+ * client cannot see on its own: the app coming back to the foreground (React Native has no
+ * window focus) or the user returning to screens that stayed mounted underneath another one.
+ */
+export function useRefreshStale() {
+  const { scope } = useFeedbackContext();
+  const client = useQueryClient();
+  return useCallback(() => void client.refetchQueries({ queryKey: feedbackKeys.all(scope), type: 'active', stale: true }), [client, scope]);
 }
 
 export function useVote() {

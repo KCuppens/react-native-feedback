@@ -12,7 +12,7 @@
     "project:create": "node scripts/create-project.mjs"
   },
   "dependencies": {
-    "@kobecuppens/feedback-core": "0.2.0",
+    "@kobecuppens/feedback-core": "0.2.1",
     "hono": "^4.9.6"
   },
   "devDependencies": {
