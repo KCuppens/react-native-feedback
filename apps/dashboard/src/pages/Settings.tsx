@@ -1,4 +1,4 @@
-import type { ProjectSettings, ProjectSummary } from '@kobecuppens/feedback-core';
+import type { ProjectSettings, ProjectSummary, PublicBoardAppearance } from '@kobecuppens/feedback-core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, latestError, keys } from '../api';
@@ -111,12 +111,22 @@ export function SettingsPage({ project }: { project: ProjectSummary }) {
             </label>
             {current.publicBoard && (
               <p className="small">
-                {t.settings.publicBoard} <a href={`${origin}/p/${project.slug}`} target="_blank" rel="noreferrer">{`${origin}/p/${project.slug}`}</a>
+                {t.settings.publicBoard}{' '}
+                <a href={`${origin}/p/${project.slug}`} target="_blank" rel="noreferrer">{`${origin}/p/${project.slug}`}</a>
               </p>
             )}
           </>
         )}
       </section>
+
+      {current && (
+        <AppearanceCard
+          key={JSON.stringify(current.appearance)}
+          appearance={current.appearance}
+          pending={save.isPending}
+          onSave={(appearance) => save.mutate({ appearance })}
+        />
+      )}
 
       <section className="card stack">
         <h3>{t.settings.keys}</h3>
@@ -198,5 +208,115 @@ const token = await signFeedbackUser({ id: user.id, name: user.name, email: user
         </details>
       </section>
     </div>
+  );
+}
+
+type Scheme = NonNullable<PublicBoardAppearance['colorScheme']>;
+
+/** Branding for the public board page (/p/<slug>): logo, fonts, theme tokens and CSS. */
+function AppearanceCard({
+  appearance,
+  pending,
+  onSave,
+}: {
+  appearance: PublicBoardAppearance | null;
+  pending: boolean;
+  onSave: (appearance: PublicBoardAppearance | null) => void;
+}) {
+  const { t } = useI18n();
+  const a = t.settings.appearance;
+  const [scheme, setScheme] = useState<Scheme>(appearance?.colorScheme ?? 'system');
+  const [logoUrl, setLogoUrl] = useState(appearance?.logoUrl ?? '');
+  const [homeUrl, setHomeUrl] = useState(appearance?.homeUrl ?? '');
+  const [fontsUrl, setFontsUrl] = useState(appearance?.fontsUrl ?? '');
+  const [theme, setTheme] = useState(appearance?.theme ? JSON.stringify(appearance.theme, null, 2) : '');
+  const [css, setCss] = useState(appearance?.css ?? '');
+  const [themeError, setThemeError] = useState(false);
+
+  const save = () => {
+    let parsed: PublicBoardAppearance['theme'];
+    if (theme.trim()) {
+      try {
+        parsed = JSON.parse(theme) as PublicBoardAppearance['theme'];
+      } catch {
+        return setThemeError(true);
+      }
+    }
+    setThemeError(false);
+    // Empty fields are left out, so the server keeps only what was filled in.
+    onSave({
+      colorScheme: scheme,
+      ...(logoUrl.trim() && { logoUrl: logoUrl.trim() }),
+      ...(homeUrl.trim() && { homeUrl: homeUrl.trim() }),
+      ...(fontsUrl.trim() && { fontsUrl: fontsUrl.trim() }),
+      ...(parsed && { theme: parsed }),
+      ...(css.trim() && { css }),
+    });
+  };
+
+  return (
+    <section className="card stack">
+      <h3>{a.title}</h3>
+      <p className="muted small">{a.intro}</p>
+      <label>
+        {a.colorScheme}
+        <select value={scheme} onChange={(e) => setScheme(e.target.value as Scheme)}>
+          {(['system', 'light', 'dark'] as const).map((s) => (
+            <option key={s} value={s}>
+              {a.schemes[s]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        {a.logoUrl}
+        <input type="url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://" />
+      </label>
+      <label>
+        {a.homeUrl}
+        <input type="url" value={homeUrl} onChange={(e) => setHomeUrl(e.target.value)} placeholder="https://" />
+      </label>
+      <label>
+        {a.fontsUrl}
+        <input
+          type="url"
+          value={fontsUrl}
+          onChange={(e) => setFontsUrl(e.target.value)}
+          placeholder="https://fonts.googleapis.com/css2?family=…"
+        />
+        <span className="muted small">{a.fontsHelp}</span>
+      </label>
+      <label>
+        {a.theme}
+        <textarea
+          className="code"
+          rows={8}
+          value={theme}
+          onChange={(e) => setTheme(e.target.value)}
+          spellCheck={false}
+          aria-invalid={themeError || undefined}
+        />
+        <span className="muted small">{a.themeHelp}</span>
+      </label>
+      {themeError && (
+        <p className="danger-text small" role="alert">
+          {a.invalidTheme}
+        </p>
+      )}
+      <label>
+        {a.css}
+        <textarea className="code" rows={10} value={css} onChange={(e) => setCss(e.target.value)} spellCheck={false} />
+      </label>
+      <div className="row">
+        <button type="button" className="primary" onClick={save} disabled={pending}>
+          {a.save}
+        </button>
+        {appearance && (
+          <button type="button" className="ghost" onClick={() => onSave(null)} disabled={pending}>
+            {a.reset}
+          </button>
+        )}
+      </div>
+    </section>
   );
 }

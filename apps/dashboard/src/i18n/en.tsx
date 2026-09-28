@@ -144,6 +144,22 @@ export interface DashboardStrings {
     deleteWarning: (slug: ReactNode) => ReactNode;
     confirmSlug: string;
     deleteForever: string;
+    appearance: {
+      title: string;
+      intro: string;
+      colorScheme: string;
+      schemes: Record<'system' | 'light' | 'dark', string>;
+      logoUrl: string;
+      homeUrl: string;
+      fontsUrl: string;
+      fontsHelp: string;
+      theme: string;
+      themeHelp: string;
+      css: string;
+      invalidTheme: string;
+      save: string;
+      reset: string;
+    };
   };
   drawer: {
     label: string;
@@ -338,6 +354,22 @@ export const en: DashboardStrings = {
     deleteWarning: (slug) => <>This deletes every post, vote, comment and image. Type {slug} to confirm.</>,
     confirmSlug: 'Confirm slug',
     deleteForever: 'Delete forever',
+    appearance: {
+      title: 'Public board appearance',
+      intro: 'Match the public board page to your website. Board elements carry fb-<slot> classes for the CSS below.',
+      colorScheme: 'Colour scheme',
+      schemes: { system: 'Follow the device', light: 'Always light', dark: 'Always dark' },
+      logoUrl: 'Logo URL',
+      homeUrl: 'Logo links to',
+      fontsUrl: 'Google Fonts URL',
+      fontsHelp: 'A fonts.googleapis.com/css2 link for the fonts your theme names.',
+      theme: 'Theme tokens (JSON)',
+      themeHelp: 'Colours, fonts, radii and spacing, e.g. {"colors":{"primary":"#1a1a1a"},"radii":{"md":0}}.',
+      css: 'Custom CSS',
+      invalidTheme: 'The theme is not valid JSON.',
+      save: 'Save appearance',
+      reset: 'Reset to default',
+    },
   },
   drawer: {
     label: 'Post',

@@ -1,4 +1,11 @@
-import { BOARD_LIMITS, DEFAULT_PROJECT_SETTINGS, locales, type ProjectSettings, type ProjectSummary } from '@kobecuppens/feedback-core';
+import {
+  BOARD_LIMITS,
+  DEFAULT_PROJECT_SETTINGS,
+  locales,
+  type ProjectSettings,
+  type ProjectSummary,
+  type PublicBoardAppearance,
+} from '@kobecuppens/feedback-core';
 import type { Env, Project, ProjectRow } from './env';
 import { SLUG_MAX } from './keys.mjs';
 import { fail } from './util';
@@ -47,6 +54,64 @@ function parseSettings(raw: string): ProjectSettings {
   return { ...DEFAULT_PROJECT_SETTINGS, ...stored };
 }
 
+const APPEARANCE_LIMITS = { cssMax: 20_000, themeMax: 8_000, urlMax: 500 } as const;
+const GOOGLE_FONTS = 'https://fonts.googleapis.com/css2?';
+
+function appearanceUrl(value: unknown, field: string, prefix = 'https://'): string {
+  if (typeof value !== 'string' || !value.startsWith(prefix) || value.length > APPEARANCE_LIMITS.urlMax) {
+    fail(400, 'invalid_input', `appearance.${field} must be a URL starting with ${prefix}`);
+  }
+  try {
+    new URL(value);
+  } catch {
+    fail(400, 'invalid_input', `appearance.${field} must be a URL starting with ${prefix}`);
+  }
+  return value;
+}
+
+/** Theme tokens are plain data: nested objects of strings and numbers only. */
+function isThemeData(value: unknown, depth = 0): boolean {
+  if (typeof value === 'string' || typeof value === 'number') return true;
+  if (depth > 3 || !value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.values(value).every((v) => isThemeData(v, depth + 1));
+}
+
+/**
+ * The public board's branding. Only project admins set it, and it only reaches the public
+ * page; still, keep it to plain data with https URLs, and the fonts link to Google Fonts
+ * (the only font host the page's CSP allows).
+ */
+function validateAppearance(value: unknown): PublicBoardAppearance {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(400, 'invalid_input', 'appearance must be an object or null');
+  const out: PublicBoardAppearance = {};
+  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+    if (v === undefined || v === null || v === '') continue;
+    if (key === 'colorScheme') {
+      if (v !== 'light' && v !== 'dark' && v !== 'system')
+        fail(400, 'invalid_input', 'appearance.colorScheme must be light, dark or system');
+      out.colorScheme = v;
+    } else if (key === 'theme') {
+      if (typeof v !== 'object' || Array.isArray(v) || !isThemeData(v) || JSON.stringify(v).length > APPEARANCE_LIMITS.themeMax) {
+        fail(400, 'invalid_input', 'appearance.theme must be theme tokens (strings and numbers)');
+      }
+      out.theme = v as PublicBoardAppearance['theme'];
+    } else if (key === 'css') {
+      if (typeof v !== 'string' || v.length > APPEARANCE_LIMITS.cssMax)
+        fail(400, 'invalid_input', `appearance.css must be text up to ${APPEARANCE_LIMITS.cssMax} characters`);
+      // Kept inside a <style> element: it must not be able to close it.
+      if (/<\/style/i.test(v)) fail(400, 'invalid_input', 'appearance.css must not contain </style>');
+      out.css = v;
+    } else if (key === 'fontsUrl') {
+      out.fontsUrl = appearanceUrl(v, key, GOOGLE_FONTS);
+    } else if (key === 'logoUrl' || key === 'homeUrl') {
+      out[key] = appearanceUrl(v, key);
+    } else {
+      fail(400, 'invalid_input', `unknown appearance setting ${key}`);
+    }
+  }
+  return out;
+}
+
 /** Validate a settings patch from the admin API; unknown keys are rejected. */
 export function validateSettingsPatch(body: Record<string, unknown>): Partial<ProjectSettings> {
   const patch: Partial<ProjectSettings> = {};
@@ -59,6 +124,8 @@ export function validateSettingsPatch(body: Record<string, unknown>): Partial<Pr
         fail(400, 'invalid_input', 'adminEmail must be an email address or null');
       }
       patch.adminEmail = value as string | null;
+    } else if (key === 'appearance') {
+      patch.appearance = value === null ? null : validateAppearance(value);
     } else if (key === 'emailLocale') {
       if (typeof value !== 'string' || !Object.keys(locales).includes(value)) {
         fail(400, 'invalid_input', `emailLocale must be one of ${Object.keys(locales).join(', ')}`);

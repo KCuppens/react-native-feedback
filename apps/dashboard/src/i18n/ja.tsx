@@ -114,7 +114,8 @@ export const ja: DashboardStrings = {
   webhooks: {
     intro: ({ header, verify, pkg }) => (
       <>
-        イベントは {header} ヘッダー付きのJSONとしてPOSTされます。{pkg} の {verify} で検証してください。独自のプッシュ通知の送信などに使えます。
+        イベントは {header} ヘッダー付きのJSONとしてPOSTされます。{pkg} の {verify}{' '}
+        で検証してください。独自のプッシュ通知の送信などに使えます。
       </>
     ),
     empty: 'Webhookはまだありません。',
@@ -166,6 +167,22 @@ export const ja: DashboardStrings = {
     deleteWarning: (slug) => <>すべての投稿、投票、コメント、画像が削除されます。確認のため {slug} と入力してください。</>,
     confirmSlug: 'スラッグを確認',
     deleteForever: '完全に削除',
+    appearance: {
+      title: '公開ボードの外観',
+      intro: '公開ボードページをあなたのサイトに合わせます。ボードの要素には下の CSS 用に fb-<slot> クラスが付いています。',
+      colorScheme: 'カラースキーム',
+      schemes: { system: 'デバイスに合わせる', light: '常にライト', dark: '常にダーク' },
+      logoUrl: 'ロゴ URL',
+      homeUrl: 'ロゴのリンク先',
+      fontsUrl: 'Google Fonts URL',
+      fontsHelp: 'テーマで使うフォントの fonts.googleapis.com/css2 リンク。',
+      theme: 'テーマトークン（JSON）',
+      themeHelp: '色、フォント、角丸、余白。例: {"colors":{"primary":"#1a1a1a"},"radii":{"md":0}}',
+      css: 'カスタム CSS',
+      invalidTheme: 'テーマが正しい JSON ではありません。',
+      save: '外観を保存',
+      reset: 'デフォルトに戻す',
+    },
   },
   drawer: {
     label: '投稿',

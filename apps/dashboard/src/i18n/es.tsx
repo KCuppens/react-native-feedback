@@ -171,6 +171,23 @@ export const es: DashboardStrings = {
     deleteWarning: (slug) => <>Se eliminarán todas las publicaciones, votos, comentarios e imágenes. Escribe {slug} para confirmar.</>,
     confirmSlug: 'Confirmar slug',
     deleteForever: 'Eliminar para siempre',
+    appearance: {
+      title: 'Apariencia del tablero público',
+      intro:
+        'Haz que la página pública del tablero combine con tu web. Los elementos del tablero llevan clases fb-<slot> para el CSS de abajo.',
+      colorScheme: 'Esquema de color',
+      schemes: { system: 'Seguir el dispositivo', light: 'Siempre claro', dark: 'Siempre oscuro' },
+      logoUrl: 'URL del logo',
+      homeUrl: 'El logo enlaza a',
+      fontsUrl: 'URL de Google Fonts',
+      fontsHelp: 'Un enlace fonts.googleapis.com/css2 con las fuentes de tu tema.',
+      theme: 'Tokens del tema (JSON)',
+      themeHelp: 'Colores, fuentes, radios y espaciado, p. ej. {"colors":{"primary":"#1a1a1a"},"radii":{"md":0}}.',
+      css: 'CSS propio',
+      invalidTheme: 'El tema no es un JSON válido.',
+      save: 'Guardar apariencia',
+      reset: 'Restablecer',
+    },
   },
   drawer: {
     label: 'Publicación',

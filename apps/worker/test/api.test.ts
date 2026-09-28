@@ -251,7 +251,50 @@ describe('admin surfaces and flags', () => {
   it('serves the public board config only when enabled for the project', async () => {
     expect((await h.request('/v1/public/projects/demo')).status).toBe(404);
     h.setSettings({ publicBoard: true });
-    expect(await json(h.request('/v1/public/projects/demo'))).toEqual({ name: 'Demo App', slug: 'demo', publicKey: h.project.publicKey });
+    expect(await json(h.request('/v1/public/projects/demo'))).toEqual({
+      name: 'Demo App',
+      slug: 'demo',
+      publicKey: h.project.publicKey,
+      appearance: null,
+    });
+  });
+
+  it('stores the public board appearance and serves it with the public config', async () => {
+    const appearance = {
+      colorScheme: 'light',
+      theme: { colors: { primary: '#1a1a1a' }, radii: { md: 0 } },
+      css: '.fb-card { border-width: 0.5px; }',
+      fontsUrl: 'https://fonts.googleapis.com/css2?family=DM+Sans',
+      logoUrl: 'https://example.com/logo.png',
+      homeUrl: 'https://example.com/',
+    };
+    const saved = await json<{ appearance: unknown }>(
+      h.request('/v1/admin/settings', { method: 'PATCH', headers: h.admin(), json: { publicBoard: true, appearance } }),
+    );
+    expect(saved.appearance).toEqual(appearance);
+    const pub = await h.request('/v1/public/projects/demo');
+    // Never cached: a stale copy would keep a rotated key or old branding.
+    expect(pub.headers.get('Cache-Control')).toBe('no-cache');
+    expect(await json<{ appearance: unknown }>(Promise.resolve(pub))).toMatchObject({ appearance });
+
+    const cleared = await json<{ appearance: unknown }>(
+      h.request('/v1/admin/settings', { method: 'PATCH', headers: h.admin(), json: { appearance: null } }),
+    );
+    expect(cleared.appearance).toBeNull();
+  });
+
+  it('rejects appearance values the public page cannot safely use', async () => {
+    const patch = (appearance: unknown) =>
+      h.request('/v1/admin/settings', { method: 'PATCH', headers: h.admin(), json: { appearance } }).then((r) => r.status);
+    expect(await patch({ logoUrl: 'http://example.com/logo.png' })).toBe(400);
+    expect(await patch({ logoUrl: 'javascript:alert(1)' })).toBe(400);
+    expect(await patch({ fontsUrl: 'https://evil.example/fonts.css' })).toBe(400);
+    expect(await patch({ css: 'body{}</style><script>alert(1)</script>' })).toBe(400);
+    expect(await patch({ css: 'x'.repeat(20_001) })).toBe(400);
+    expect(await patch({ theme: { colors: { primary: ['#000'] } } })).toBe(400);
+    expect(await patch({ colorScheme: 'sepia' })).toBe(400);
+    expect(await patch({ script: 'nope' })).toBe(400);
+    expect(await patch(['not', 'an', 'object'])).toBe(400);
   });
 
   it('merges duplicates and carries votes over', async () => {
